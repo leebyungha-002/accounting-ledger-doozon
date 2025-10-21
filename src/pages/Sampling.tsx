@@ -25,7 +25,10 @@ const Sampling = () => {
   const [open, setOpen] = useState(false);
   const [selectedSamplingAccount, setSelectedSamplingAccount] = useState<string>('');
   const [samplingMethod, setSamplingMethod] = useState<string>('random');
+  const [sampleSizeMethod, setSampleSizeMethod] = useState<string>('manual'); // 'manual' or 'formula'
   const [sampleSize, setSampleSize] = useState<string>('30');
+  const [riskFactor, setRiskFactor] = useState<string>('1.5');
+  const [tolerableError, setTolerableError] = useState<string>('1000000');
   const [sampledData, setSampledData] = useState<any[]>([]);
 
   useEffect(() => {
@@ -89,6 +92,38 @@ const Sampling = () => {
     return Array.from(accounts).sort();
   }, [ledgerData]);
 
+  // Calculate population size and total amount for selected account
+  const populationStats = useMemo(() => {
+    if (!selectedSamplingAccount) return { size: 0, totalAmount: 0 };
+    
+    const accountData = ledgerData.filter(row => {
+      const sheetName = row['시트명'] || row['계정과목'] || row['계정명'];
+      const dateStr = row['__EMPTY'];
+      return sheetName === selectedSamplingAccount && dateStr && typeof dateStr === 'string' && dateStr.trim() !== '';
+    });
+
+    const totalAmount = accountData.reduce((sum, row) => {
+      const debit = Math.abs(parseFloat(row['__EMPTY_3'] || 0));
+      const credit = Math.abs(parseFloat(row['__EMPTY_4'] || 0));
+      return sum + debit + credit;
+    }, 0);
+
+    return { size: accountData.length, totalAmount };
+  }, [ledgerData, selectedSamplingAccount]);
+
+  // Calculate sample size using formula
+  const calculatedSampleSize = useMemo(() => {
+    if (sampleSizeMethod !== 'formula' || !selectedSamplingAccount) return null;
+    
+    const risk = parseFloat(riskFactor);
+    const tolerable = parseFloat(tolerableError);
+    
+    if (isNaN(risk) || isNaN(tolerable) || tolerable <= 0) return null;
+    
+    const calculated = Math.ceil((populationStats.size * risk) / tolerable);
+    return Math.min(calculated, populationStats.size); // Cannot exceed population size
+  }, [sampleSizeMethod, selectedSamplingAccount, riskFactor, tolerableError, populationStats.size]);
+
   // 샘플링 방법 설명
   const getSamplingMethodDescription = (method: string): string => {
     switch (method) {
@@ -114,14 +149,28 @@ const Sampling = () => {
       return;
     }
 
-    const size = parseInt(sampleSize, 10);
-    if (isNaN(size) || size < 1) {
-      toast({
-        title: '오류',
-        description: '올바른 샘플 크기를 입력해주세요.',
-        variant: 'destructive',
-      });
-      return;
+    let size: number;
+    
+    if (sampleSizeMethod === 'formula') {
+      if (calculatedSampleSize === null) {
+        toast({
+          title: '오류',
+          description: '위험계수와 허용가능오류금액을 올바르게 입력해주세요.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      size = calculatedSampleSize;
+    } else {
+      size = parseInt(sampleSize, 10);
+      if (isNaN(size) || size < 1) {
+        toast({
+          title: '오류',
+          description: '올바른 샘플 크기를 입력해주세요.',
+          variant: 'destructive',
+        });
+        return;
+      }
     }
 
     // Filter data for selected account
@@ -334,17 +383,76 @@ const Sampling = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>샘플 크기</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={sampleSize}
-                    onChange={(e) => setSampleSize(e.target.value)}
-                    placeholder="30"
-                  />
+                  <Label>샘플 크기 결정 방법</Label>
+                  <Select value={sampleSizeMethod} onValueChange={setSampleSizeMethod}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manual">직접 입력</SelectItem>
+                      <SelectItem value="formula">공식 계산</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                <Button onClick={performSampling} className="w-full">
+                {sampleSizeMethod === 'manual' ? (
+                  <div className="space-y-2">
+                    <Label>샘플 크기</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={sampleSize}
+                      onChange={(e) => setSampleSize(e.target.value)}
+                      placeholder="30"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>위험 계수 (Risk Factor)</Label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        value={riskFactor}
+                        onChange={(e) => setRiskFactor(e.target.value)}
+                        placeholder="1.5"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        일반적으로 1.0 ~ 3.0 사이 값 사용
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>허용가능 오류금액</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={tolerableError}
+                        onChange={(e) => setTolerableError(e.target.value)}
+                        placeholder="1000000"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        허용 가능한 최대 오류 금액 (원)
+                      </p>
+                    </div>
+                    {selectedSamplingAccount && calculatedSampleSize !== null && (
+                      <div className="p-3 bg-muted rounded-md space-y-1">
+                        <p className="text-sm font-medium">계산 결과</p>
+                        <p className="text-xs text-muted-foreground">
+                          모집단 크기: {populationStats.size.toLocaleString()}개
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          총 금액: {populationStats.totalAmount.toLocaleString()}원
+                        </p>
+                        <p className="text-sm font-semibold text-primary">
+                          권장 샘플 크기: {calculatedSampleSize}개
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Button onClick={performSampling} className="w-full" disabled={sampleSizeMethod === 'formula' && calculatedSampleSize === null}>
                   샘플링 실행
                 </Button>
               </CardContent>
