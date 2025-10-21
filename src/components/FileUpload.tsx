@@ -25,11 +25,27 @@ export const FileUpload = ({ onFileUpload }: FileUploadProps) => {
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+      
+      // 모든 시트의 데이터를 합치기
+      let allData: any[] = [];
+      let sheetCount = 0;
+      
+      workbook.SheetNames.forEach((sheetName) => {
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        
+        if (jsonData.length > 0) {
+          // 각 데이터에 시트 이름 추가
+          const dataWithSheet = jsonData.map((row: any) => ({
+            ...(row as object),
+            '시트명': sheetName
+          }));
+          allData = [...allData, ...dataWithSheet];
+          sheetCount++;
+        }
+      });
 
-      if (jsonData.length === 0) {
+      if (allData.length === 0) {
         toast({
           title: '오류',
           description: '파일에 데이터가 없습니다.',
@@ -38,10 +54,10 @@ export const FileUpload = ({ onFileUpload }: FileUploadProps) => {
         return;
       }
 
-      onFileUpload(jsonData, file.name);
+      onFileUpload(allData, file.name);
       toast({
         title: '성공',
-        description: `${jsonData.length}개의 데이터를 불러왔습니다.`,
+        description: `${sheetCount}개 시트에서 총 ${allData.length}개의 데이터를 불러왔습니다.`,
       });
     } catch (error) {
       console.error('File parsing error:', error);
