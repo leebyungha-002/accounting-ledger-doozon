@@ -1,0 +1,4 @@
+project_id = "wfmrjzwxpehsmpgpencd"
+
+[functions.analyze-ledger]
+verify_jwt = true
