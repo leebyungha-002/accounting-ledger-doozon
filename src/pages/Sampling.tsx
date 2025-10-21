@@ -111,8 +111,8 @@ const Sampling = () => {
     });
 
     const totalAmount = accountData.reduce((sum, row) => {
-      const debit = Math.abs(parseFloat(row['__EMPTY_3'] || 0));
-      const credit = Math.abs(parseFloat(row['__EMPTY_4'] || 0));
+      const debit = parseFloat(row['__EMPTY_3']) || 0;
+      const credit = parseFloat(row['__EMPTY_4']) || 0;
       return sum + debit + credit;
     }, 0);
 
