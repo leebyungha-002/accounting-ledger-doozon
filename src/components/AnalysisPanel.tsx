@@ -60,17 +60,43 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
     const accountName = selectedAccount === 'all' ? '전체계정' : selectedAccount;
     
     const wb = XLSX.utils.book_new();
+    
+    // 마크다운 텍스트를 줄 단위로 분리하고 구조화
+    const lines = analysisContent.split('\n').filter(line => line.trim() !== '');
+    const formattedLines = lines.map(line => {
+      // 제목 형식 (#, ##, ###)인 경우 굵게 표시를 위해 별도 처리
+      if (line.startsWith('###')) {
+        return [line.replace(/^###\s*/, '').trim()];
+      } else if (line.startsWith('##')) {
+        return [line.replace(/^##\s*/, '').trim()];
+      } else if (line.startsWith('#')) {
+        return [line.replace(/^#\s*/, '').trim()];
+      } else if (line.startsWith('-') || line.startsWith('*')) {
+        // 목록 항목
+        return ['  ' + line.replace(/^[-*]\s*/, '• ').trim()];
+      } else if (line.match(/^\d+\./)) {
+        // 번호 목록
+        return ['  ' + line.trim()];
+      } else {
+        return [line.trim()];
+      }
+    });
+    
     const wsData = [
       ['분석 유형', typeName],
       ['계정', accountName],
       ['분석 일시', new Date().toLocaleString('ko-KR')],
       [],
       ['분석 결과'],
-      [analysisContent],
+      [],
+      ...formattedLines,
     ];
     
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 15 }, { wch: 80 }];
+    ws['!cols'] = [{ wch: 100 }];
+    
+    // 헤더 행들 스타일 설정
+    if (ws['A5']) ws['A5'].s = { font: { bold: true } };
     
     XLSX.utils.book_append_sheet(wb, ws, '분석결과');
     XLSX.writeFile(wb, `AI분석_${typeName}_${accountName}_${new Date().toISOString().split('T')[0]}.xlsx`);
