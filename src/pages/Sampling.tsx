@@ -486,11 +486,15 @@ const Sampling = () => {
                     <div className="space-y-2">
                       <Label>허용가능 오류금액</Label>
                       <Input
-                        type="number"
-                        min="1"
-                        value={tolerableError}
-                        onChange={(e) => setTolerableError(e.target.value)}
-                        placeholder="1000000"
+                        type="text"
+                        value={parseFloat(tolerableError || '0').toLocaleString()}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/,/g, '');
+                          if (/^\d*$/.test(value)) {
+                            setTolerableError(value);
+                          }
+                        }}
+                        placeholder="1,000,000"
                       />
                       <p className="text-xs text-muted-foreground">
                         허용 가능한 최대 오류 금액 (원)
