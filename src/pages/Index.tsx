@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FileUpload } from '@/components/FileUpload';
 import { LedgerDataTable } from '@/components/LedgerDataTable';
 import { AnalysisPanel } from '@/components/AnalysisPanel';
 import { AuthForm } from '@/components/AuthForm';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, FileSpreadsheet } from 'lucide-react';
+import { LogOut, FileSpreadsheet, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 const Index = () => {
+  const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [ledgerData, setLedgerData] = useState<any[]>([]);
   const [fileName, setFileName] = useState<string>('');
@@ -115,10 +117,18 @@ const Index = () => {
           <>
             <Card>
               <CardHeader>
-                <CardTitle>데이터 미리보기</CardTitle>
-                <CardDescription>
-                  업로드된 파일: {fileName} ({ledgerData.length}개 항목)
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>데이터 미리보기</CardTitle>
+                    <CardDescription>
+                      업로드된 파일: {fileName} ({ledgerData.length}개 항목)
+                    </CardDescription>
+                  </div>
+                  <Button onClick={() => navigate('/dual-offset-analysis')} variant="outline">
+                    <AlertTriangle className="mr-2 h-4 w-4" />
+                    이중/상계 거래처 분석
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <LedgerDataTable data={ledgerData} />
