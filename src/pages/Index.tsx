@@ -21,16 +21,44 @@ const Index = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      if (session?.user) {
+        loadLatestLedger(session.user.id);
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (session?.user) {
+        loadLatestLedger(session.user.id);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const loadLatestLedger = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('general_ledgers')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        setLedgerData((data.data as any[]) || []);
+        setFileName(data.file_name || '');
+        setLedgerId(data.id);
+      }
+    } catch (error) {
+      console.error('Error loading ledger:', error);
+    }
+  };
 
   const handleFileUpload = async (data: any[], name: string) => {
     setLedgerData(data);
