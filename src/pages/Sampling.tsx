@@ -107,46 +107,46 @@ const Sampling = () => {
     return 'debit';
   };
 
-  // 거래처명 추출 함수
+  // 거래처명 추출 함수 (DualOffsetAnalysis와 동일한 로직)
   const extractClient = (row: any): string => {
-    const possibleFields = ['거래처', '거래처명', '__EMPTY_3', '__EMPTY_2'];
+    // __EMPTY_2가 거래처 필드입니다
+    // 하지만 거래처 필드에는 거래처코드와 거래처명이 함께 있을 수 있습니다
+    // 예: "1001 (주)ABC회사" 또는 단순히 "1001" 또는 "(주)ABC회사"
     
-    for (const field of possibleFields) {
-      const value = row[field];
-      if (value) {
-        const strValue = String(value).trim();
-        
-        // 제외할 패턴들
-        const excludePatterns = [
-          '원   장',
-          '적    요',
-          '날짜',
-          '거래처',
-          '합계',
-          '총합계',
-          '[ 월',
-          '[ 누',
-          ']',
-          '차   변',
-          '대   변',
-          '잔   액',
-          '코드'
-        ];
-        
-        // 숫자만으로 구성된 경우 건너뛰기 (거래처 코드일 가능성)
-        if (/^\d+$/.test(strValue)) {
-          continue;
-        }
-        
-        // 헤더나 합계 행이 아니고, 실제 값이 있으면 반환
-        if (strValue && 
-            strValue.length > 0 &&
-            !excludePatterns.some(pattern => strValue.includes(pattern))) {
-          return strValue;
-        }
-      }
+    const clientField = row['__EMPTY_2'];
+    
+    if (!clientField) return '-';
+    
+    const strValue = String(clientField).trim();
+    
+    // 제외할 패턴들 (헤더나 합계 행)
+    const excludePatterns = [
+      '원   장',
+      '적    요',
+      '날짜',
+      '거래처',
+      '합계',
+      '총합계',
+      '[ 월',
+      '[ 누',
+      ']',
+      '차   변',
+      '대   변',
+      '잔   액'
+    ];
+    
+    // 헤더나 합계 행인 경우
+    if (excludePatterns.some(pattern => strValue.includes(pattern))) {
+      return '-';
     }
-    return row['__EMPTY_2'] || '-';
+    
+    // 빈 값
+    if (!strValue || strValue.length === 0) {
+      return '-';
+    }
+    
+    // 실제 거래처 데이터 반환
+    return strValue;
   };
 
   // Get all unique accounts for sampling
@@ -223,6 +223,27 @@ const Sampling = () => {
     }
 
     const accountType = getAccountType(selectedSamplingAccount);
+
+    // 디버깅: 첫 번째 데이터 행 확인
+    const firstRow = ledgerData.find(row => {
+      const sheetName = row['시트명'] || row['계정과목'] || row['계정명'];
+      const dateStr = row['__EMPTY'];
+      return sheetName === selectedSamplingAccount && dateStr && typeof dateStr === 'string' && dateStr.trim() !== '';
+    });
+    
+    if (firstRow) {
+      console.log('=== 샘플 데이터 구조 확인 ===');
+      console.log('전체 필드:', Object.keys(firstRow));
+      console.log('__EMPTY (날짜):', firstRow['__EMPTY']);
+      console.log('__EMPTY_1 (적요):', firstRow['__EMPTY_1']);
+      console.log('__EMPTY_2 (거래처?):', firstRow['__EMPTY_2']);
+      console.log('__EMPTY_3 (차변):', firstRow['__EMPTY_3']);
+      console.log('__EMPTY_4 (대변):', firstRow['__EMPTY_4']);
+      console.log('__EMPTY_5 (잔액):', firstRow['__EMPTY_5']);
+      console.log('__EMPTY_6:', firstRow['__EMPTY_6']);
+      console.log('__EMPTY_7:', firstRow['__EMPTY_7']);
+      console.log('계   정   별   원   장:', firstRow['계   정   별   원   장']);
+    }
 
     let size: number;
     
