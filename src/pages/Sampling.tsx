@@ -107,13 +107,10 @@ const Sampling = () => {
     return 'debit';
   };
 
-  // 거래처명 추출 함수 (DualOffsetAnalysis와 동일한 로직)
+  // 거래처명 추출 함수
   const extractClient = (row: any): string => {
-    // __EMPTY_2가 거래처 필드입니다
-    // 하지만 거래처 필드에는 거래처코드와 거래처명이 함께 있을 수 있습니다
-    // 예: "1001 (주)ABC회사" 또는 단순히 "1001" 또는 "(주)ABC회사"
-    
-    const clientField = row['__EMPTY_2'];
+    // __EMPTY_3이 거래처 필드입니다 (날짜|적요|코드|거래처|차변|대변|잔액)
+    const clientField = row['__EMPTY_3'];
     
     if (!clientField) return '-';
     
@@ -174,8 +171,8 @@ const Sampling = () => {
     const accountType = getAccountType(selectedSamplingAccount);
     
     const totalAmount = accountData.reduce((sum, row) => {
-      const debit = parseFloat(row['__EMPTY_3']) || 0;
-      const credit = parseFloat(row['__EMPTY_4']) || 0;
+      const debit = parseFloat(row['__EMPTY_4']) || 0;
+      const credit = parseFloat(row['__EMPTY_5']) || 0;
       // 계정 유형에 따라 금액 합산
       const amount = accountType === 'debit' ? Math.abs(debit) : Math.abs(credit);
       return sum + amount;
@@ -236,11 +233,11 @@ const Sampling = () => {
       console.log('전체 필드:', Object.keys(firstRow));
       console.log('__EMPTY (날짜):', firstRow['__EMPTY']);
       console.log('__EMPTY_1 (적요):', firstRow['__EMPTY_1']);
-      console.log('__EMPTY_2 (거래처?):', firstRow['__EMPTY_2']);
-      console.log('__EMPTY_3 (차변):', firstRow['__EMPTY_3']);
-      console.log('__EMPTY_4 (대변):', firstRow['__EMPTY_4']);
-      console.log('__EMPTY_5 (잔액):', firstRow['__EMPTY_5']);
-      console.log('__EMPTY_6:', firstRow['__EMPTY_6']);
+      console.log('__EMPTY_2 (코드):', firstRow['__EMPTY_2']);
+      console.log('__EMPTY_3 (거래처):', firstRow['__EMPTY_3']);
+      console.log('__EMPTY_4 (차변):', firstRow['__EMPTY_4']);
+      console.log('__EMPTY_5 (대변):', firstRow['__EMPTY_5']);
+      console.log('__EMPTY_6 (잔액):', firstRow['__EMPTY_6']);
       console.log('__EMPTY_7:', firstRow['__EMPTY_7']);
       console.log('계   정   별   원   장:', firstRow['계   정   별   원   장']);
     }
@@ -301,8 +298,8 @@ const Sampling = () => {
     } else if (samplingMethod === 'monetary') {
       // Monetary Unit Sampling (MUS) - weighted by amount based on account type
       const dataWithAmounts = accountData.map(row => {
-        const debitAmount = Math.abs(parseFloat(row['__EMPTY_3']) || 0);
-        const creditAmount = Math.abs(parseFloat(row['__EMPTY_4']) || 0);
+        const debitAmount = Math.abs(parseFloat(row['__EMPTY_4']) || 0);
+        const creditAmount = Math.abs(parseFloat(row['__EMPTY_5']) || 0);
         
         // 계정 유형에 따라 샘플링 기준 금액 결정
         const amount = accountType === 'debit' ? debitAmount : creditAmount;
@@ -374,14 +371,15 @@ const Sampling = () => {
     
     const wsData = [
       ...headerData,
-      ['날짜', '적요', '거래처', '차변', '대변', '잔액'],
+      ['날짜', '적요', '코드', '거래처', '차변', '대변', '잔액'],
       ...sampledData.map(row => [
         row['__EMPTY'] || '',
         row['__EMPTY_1'] || '',
+        row['__EMPTY_2'] || '',
         extractClient(row),
-        row['__EMPTY_3'] || 0,
         row['__EMPTY_4'] || 0,
         row['__EMPTY_5'] || 0,
+        row['__EMPTY_6'] || 0,
       ]),
     ];
 
@@ -389,6 +387,7 @@ const Sampling = () => {
     ws['!cols'] = [
       { wch: 15 },
       { wch: 40 },
+      { wch: 15 },
       { wch: 30 },
       { wch: 15 },
       { wch: 15 },
@@ -677,6 +676,7 @@ const Sampling = () => {
                         <TableRow>
                           <TableHead className="font-semibold">날짜</TableHead>
                           <TableHead className="font-semibold">적요</TableHead>
+                          <TableHead className="font-semibold">코드</TableHead>
                           <TableHead className="font-semibold">거래처</TableHead>
                           <TableHead className="font-semibold text-right">차변</TableHead>
                           <TableHead className="font-semibold text-right">대변</TableHead>
@@ -688,15 +688,16 @@ const Sampling = () => {
                           <TableRow key={idx}>
                             <TableCell>{row['__EMPTY'] || '-'}</TableCell>
                             <TableCell className="max-w-[300px] truncate">{row['__EMPTY_1'] || '-'}</TableCell>
+                            <TableCell>{row['__EMPTY_2'] || '-'}</TableCell>
                             <TableCell className="max-w-[200px] truncate">{extractClient(row)}</TableCell>
-                            <TableCell className="text-right">
-                              {parseFloat(row['__EMPTY_3'] || 0).toLocaleString()}
-                            </TableCell>
                             <TableCell className="text-right">
                               {parseFloat(row['__EMPTY_4'] || 0).toLocaleString()}
                             </TableCell>
                             <TableCell className="text-right">
                               {parseFloat(row['__EMPTY_5'] || 0).toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {parseFloat(row['__EMPTY_6'] || 0).toLocaleString()}
                             </TableCell>
                           </TableRow>
                         ))}
