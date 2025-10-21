@@ -109,8 +109,8 @@ const Sampling = () => {
 
   // 거래처명 추출 함수
   const extractClient = (row: any): string => {
-    // __EMPTY_3이 거래처 필드입니다 (날짜|적요|코드|거래처|차변|대변|잔액)
-    const clientField = row['__EMPTY_3'];
+    // 거래처명은 '계   정   별   원   장' 필드에 있습니다
+    const clientField = row['계   정   별   원   장'];
     
     if (!clientField) return '-';
     
@@ -171,8 +171,8 @@ const Sampling = () => {
     const accountType = getAccountType(selectedSamplingAccount);
     
     const totalAmount = accountData.reduce((sum, row) => {
-      const debit = parseFloat(row['__EMPTY_4']) || 0;
-      const credit = parseFloat(row['__EMPTY_5']) || 0;
+      const debit = parseFloat(row['__EMPTY_3']) || 0;
+      const credit = parseFloat(row['__EMPTY_4']) || 0;
       // 계정 유형에 따라 금액 합산
       const amount = accountType === 'debit' ? Math.abs(debit) : Math.abs(credit);
       return sum + amount;
@@ -234,11 +234,10 @@ const Sampling = () => {
       console.log('__EMPTY (날짜):', firstRow['__EMPTY']);
       console.log('__EMPTY_1 (적요):', firstRow['__EMPTY_1']);
       console.log('__EMPTY_2 (코드):', firstRow['__EMPTY_2']);
-      console.log('__EMPTY_3 (거래처):', firstRow['__EMPTY_3']);
-      console.log('__EMPTY_4 (차변):', firstRow['__EMPTY_4']);
-      console.log('__EMPTY_5 (대변):', firstRow['__EMPTY_5']);
-      console.log('__EMPTY_6 (잔액):', firstRow['__EMPTY_6']);
-      console.log('__EMPTY_7:', firstRow['__EMPTY_7']);
+      console.log('계   정   별   원   장 (거래처):', firstRow['계   정   별   원   장']);
+      console.log('__EMPTY_3 (차변):', firstRow['__EMPTY_3']);
+      console.log('__EMPTY_4 (대변):', firstRow['__EMPTY_4']);
+      console.log('__EMPTY_5 (잔액):', firstRow['__EMPTY_5']);
       console.log('계   정   별   원   장:', firstRow['계   정   별   원   장']);
     }
 
@@ -298,8 +297,8 @@ const Sampling = () => {
     } else if (samplingMethod === 'monetary') {
       // Monetary Unit Sampling (MUS) - weighted by amount based on account type
       const dataWithAmounts = accountData.map(row => {
-        const debitAmount = Math.abs(parseFloat(row['__EMPTY_4']) || 0);
-        const creditAmount = Math.abs(parseFloat(row['__EMPTY_5']) || 0);
+        const debitAmount = Math.abs(parseFloat(row['__EMPTY_3']) || 0);
+        const creditAmount = Math.abs(parseFloat(row['__EMPTY_4']) || 0);
         
         // 계정 유형에 따라 샘플링 기준 금액 결정
         const amount = accountType === 'debit' ? debitAmount : creditAmount;
@@ -377,9 +376,9 @@ const Sampling = () => {
         row['__EMPTY_1'] || '',
         row['__EMPTY_2'] || '',
         extractClient(row),
+        row['__EMPTY_3'] || 0,
         row['__EMPTY_4'] || 0,
         row['__EMPTY_5'] || 0,
-        row['__EMPTY_6'] || 0,
       ]),
     ];
 
@@ -691,13 +690,13 @@ const Sampling = () => {
                             <TableCell>{row['__EMPTY_2'] || '-'}</TableCell>
                             <TableCell className="max-w-[200px] truncate">{extractClient(row)}</TableCell>
                             <TableCell className="text-right">
+                              {parseFloat(row['__EMPTY_3'] || 0).toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right">
                               {parseFloat(row['__EMPTY_4'] || 0).toLocaleString()}
                             </TableCell>
                             <TableCell className="text-right">
                               {parseFloat(row['__EMPTY_5'] || 0).toLocaleString()}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {parseFloat(row['__EMPTY_6'] || 0).toLocaleString()}
                             </TableCell>
                           </TableRow>
                         ))}
