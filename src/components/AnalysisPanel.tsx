@@ -2,11 +2,13 @@ import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { TrendingUp, AlertTriangle, Scale, Sparkles, Loader2 } from 'lucide-react';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { TrendingUp, AlertTriangle, Scale, Sparkles, Loader2, Check, ChevronsUpDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import ReactMarkdown from 'react-markdown';
+import { cn } from '@/lib/utils';
 
 interface AnalysisPanelProps {
   ledgerData: any[];
@@ -18,6 +20,7 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
   const [analyses, setAnalyses] = useState<Record<string, string>>({});
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<string>('trend');
+  const [openCombobox, setOpenCombobox] = useState(false);
   const { toast } = useToast();
 
   // 계정 목록 추출
@@ -138,19 +141,62 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
       <CardContent>
         <div className="mb-6">
           <label className="text-sm font-medium mb-2 block">분석할 계정 선택</label>
-          <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-            <SelectTrigger>
-              <SelectValue placeholder="계정을 선택하세요" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">전체 계정</SelectItem>
-              {accounts.map(account => (
-                <SelectItem key={account} value={account}>
-                  {account}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={openCombobox}
+                className="w-full justify-between"
+              >
+                {selectedAccount === 'all' ? '전체 계정' : selectedAccount}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+              <Command>
+                <CommandInput placeholder="계정 검색..." />
+                <CommandList>
+                  <CommandEmpty>계정을 찾을 수 없습니다.</CommandEmpty>
+                  <CommandGroup>
+                    <CommandItem
+                      value="all"
+                      onSelect={() => {
+                        setSelectedAccount('all');
+                        setOpenCombobox(false);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          selectedAccount === 'all' ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      전체 계정
+                    </CommandItem>
+                    {accounts.map((account) => (
+                      <CommandItem
+                        key={account}
+                        value={account}
+                        onSelect={() => {
+                          setSelectedAccount(account);
+                          setOpenCombobox(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            selectedAccount === account ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        {account}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
           <p className="text-xs text-muted-foreground mt-2">
             선택된 계정: {selectedAccount === 'all' ? '전체' : selectedAccount} 
             ({filteredData.length}개 항목)
