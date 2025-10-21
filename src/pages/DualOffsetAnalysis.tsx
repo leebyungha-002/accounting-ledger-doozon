@@ -67,39 +67,38 @@ const DualOffsetAnalysis = () => {
 
   // 거래처 정보 추출 - 개선
   const extractClient = (row: any): string | null => {
-    // 가능한 필드명들 확인 (__EMPTY_2가 거래처, __EMPTY_1은 적요)
-    const possibleFields = ['거래처', '거래처명', '__EMPTY_2', '계   정   별   원   장'];
+    // 거래처명은 '계   정   별   원   장' 필드에 있습니다
+    const clientField = row['계   정   별   원   장'];
     
-    for (const field of possibleFields) {
-      const value = row[field];
-      if (value) {
-        const strValue = String(value).trim();
-        
-        // 제외할 패턴들
-        const excludePatterns = [
-          '원   장',
-          '적    요',
-          '날짜',
-          '거래처',
-          '합계',
-          '총합계',
-          '[ 월',
-          '[ 누',
-          ']',
-          '차   변',
-          '대   변',
-          '잔   액',
-          '코드'
-        ];
-        
-        // 헤더나 합계 행이 아니고, 실제 값이 있으면 반환
-        if (strValue && 
-            strValue.length > 0 &&
-            !excludePatterns.some(pattern => strValue.includes(pattern))) {
-          return strValue;
-        }
-      }
+    if (!clientField) return null;
+    
+    const strValue = String(clientField).trim();
+    
+    // 제외할 패턴들
+    const excludePatterns = [
+      '원   장',
+      '적    요',
+      '날짜',
+      '거래처',
+      '합계',
+      '총합계',
+      '[ 월',
+      '[ 누',
+      ']',
+      '차   변',
+      '대   변',
+      '잔   액',
+      '코드',
+      '~' // 날짜 범위 표시
+    ];
+    
+    // 헤더나 합계 행이 아니고, 실제 값이 있으면 반환
+    if (strValue && 
+        strValue.length > 0 &&
+        !excludePatterns.some(pattern => strValue.includes(pattern))) {
+      return strValue;
     }
+    
     return null;
   };
 
