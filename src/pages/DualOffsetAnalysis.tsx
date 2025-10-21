@@ -173,16 +173,13 @@ const DualOffsetAnalysis = () => {
     // 대변 계정의 필드 구조 확인
     if (creditRows.length > 0) {
       console.log('대변 계정 첫 번째 행의 모든 키:', Object.keys(creditRows[0]));
-      creditRows.slice(0, 10).forEach((row, idx) => {
-        console.log(`대변 행 ${idx + 1}:`, {
-          거래처: row['거래처'],
-          EMPTY3: row['EMPTY3'],
-          EMPTY4: row['EMPTY4'],
-          EMPTY5: row['EMPTY5'],
-          차변: row['차 변'],
-          대변: row['대 변'],
-          allKeys: Object.keys(row).filter(k => k.includes('EMPTY') || k === '거래처')
-        });
+      console.log('대변 계정 "계 정 별 원 장" 필드 샘플:');
+      creditRows.slice(0, 5).forEach((row, idx) => {
+        console.log(`대변 행 ${idx + 1} 원장 값:`, row['계 정 별 원 장']);
+        console.log(`대변 행 ${idx + 1} 타입:`, typeof row['계 정 별 원 장']);
+        if (typeof row['계 정 별 원 장'] === 'object') {
+          console.log(`대변 행 ${idx + 1} 객체 키:`, Object.keys(row['계 정 별 원 장'] || {}));
+        }
       });
     }
 
