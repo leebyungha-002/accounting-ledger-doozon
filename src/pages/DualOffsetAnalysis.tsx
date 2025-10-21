@@ -76,7 +76,6 @@ const DualOffsetAnalysis = () => {
     const expenseAccounts = ['판매비', '관리비', '판매비와관리비', '급여', '복리후생비', '접대비', '통신비', '지급수수료', '광고선전비', '광고비', '운반비', '수선비', '소모품비', '도서인쇄비', '차량유지비', '여비교통비', '세금과공과', '감가상각비', '보험료', '임차료', '수도광열비'];
 
     const clientsByAccount = new Map<string, Set<string>>();
-    const debugInfo: any[] = [];
 
     ledgerData.forEach((row, idx) => {
       const client = extractClient(row);
@@ -87,18 +86,6 @@ const DualOffsetAnalysis = () => {
       const isSales = salesAccounts.some(acc => account.includes(acc));
       const isExpense = expenseAccounts.some(acc => account.includes(acc));
 
-      // 디버깅: Frontier 거래처 확인
-      if (client.toLowerCase().includes('frontier')) {
-        debugInfo.push({ 
-          row: idx, 
-          client, 
-          account, 
-          isSales, 
-          isExpense,
-          allFields: row 
-        });
-      }
-
       if (isSales || isExpense) {
         const accountType = isSales ? 'sales' : 'expense';
         
@@ -106,18 +93,6 @@ const DualOffsetAnalysis = () => {
           clientsByAccount.set(client, new Set());
         }
         clientsByAccount.get(client)!.add(accountType);
-      }
-    });
-
-    if (debugInfo.length > 0) {
-      console.log('=== Frontier 디버깅 정보 ===');
-      debugInfo.forEach(info => console.log(info));
-    }
-
-    console.log('=== 이중 거래처 맵 ===');
-    clientsByAccount.forEach((types, client) => {
-      if (client.toLowerCase().includes('frontier')) {
-        console.log(`${client}:`, Array.from(types));
       }
     });
 
@@ -132,6 +107,31 @@ const DualOffsetAnalysis = () => {
     });
 
     return dualClients;
+  }, [ledgerData]);
+
+  // 디버깅용 데이터
+  const frontierDebugData = useMemo(() => {
+    const salesAccounts = ['매출', '제품매출', '상품매출', '용역매출'];
+    const expenseAccounts = ['판매비', '관리비', '판매비와관리비', '급여', '복리후생비', '접대비', '통신비', '지급수수료', '광고선전비', '광고비', '운반비', '수선비', '소모품비', '도서인쇄비', '차량유지비', '여비교통비', '세금과공과', '감가상각비', '보험료', '임차료', '수도광열비'];
+    
+    return ledgerData
+      .map((row, idx) => {
+        const client = extractClient(row);
+        if (!client || !client.toLowerCase().includes('frontier')) return null;
+        
+        const account = row['시트명'] || '';
+        const isSales = salesAccounts.some(acc => account.includes(acc));
+        const isExpense = expenseAccounts.some(acc => account.includes(acc));
+        
+        return {
+          행번호: idx,
+          거래처: client,
+          시트명: account,
+          매출여부: isSales ? '✓' : '✗',
+          비용여부: isExpense ? '✓' : '✗',
+        };
+      })
+      .filter(Boolean);
   }, [ledgerData]);
 
   // 채권/채무 이중 거래처 분석
@@ -200,7 +200,45 @@ const DualOffsetAnalysis = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-8">
-        {/* 디버깅: 데이터 샘플 표시 */}
+        {/* Frontier 디버깅 카드 */}
+        {frontierDebugData.length > 0 && (
+          <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+            <CardHeader>
+              <CardTitle className="text-yellow-800 dark:text-yellow-200">
+                Frontier 거래처 디버깅 정보
+              </CardTitle>
+              <CardDescription>
+                Frontier가 포함된 모든 행과 매출/비용 판단 결과
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>행번호</TableHead>
+                    <TableHead>거래처</TableHead>
+                    <TableHead>시트명</TableHead>
+                    <TableHead>매출계정?</TableHead>
+                    <TableHead>비용계정?</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {frontierDebugData.map((item: any, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{item.행번호}</TableCell>
+                      <TableCell>{item.거래처}</TableCell>
+                      <TableCell>{item.시트명}</TableCell>
+                      <TableCell>{item.매출여부}</TableCell>
+                      <TableCell>{item.비용여부}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 데이터 샘플 표시 */}
         <Card>
           <CardHeader>
             <CardTitle>데이터 샘플 (디버깅용)</CardTitle>
