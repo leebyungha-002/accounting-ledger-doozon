@@ -225,32 +225,36 @@ const MonthlyPLAnalysis = () => {
                     왼쪽에서 계정을 선택하세요
                   </p>
                 ) : (
-                  <ScrollArea className="h-[600px]">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="font-semibold">계정명</TableHead>
-                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(month => (
-                            <TableHead key={month} className="font-semibold text-right">
-                              {month}월
-                            </TableHead>
-                          ))}
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {Array.from(selectedAccounts).map(account => (
-                          <TableRow key={account}>
-                            <TableCell className="font-medium">{account}</TableCell>
-                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(month => (
-                              <TableCell key={month} className="text-right">
-                                {monthlyData[account]?.[month]?.toLocaleString() || '0'}
-                              </TableCell>
+                  <div className="border rounded-lg">
+                    <ScrollArea className="h-[600px] w-full">
+                      <div className="min-w-[1400px]">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="font-semibold sticky left-0 bg-background z-10 min-w-[200px]">계정명</TableHead>
+                              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(month => (
+                                <TableHead key={month} className="font-semibold text-right min-w-[100px]">
+                                  {month}월
+                                </TableHead>
+                              ))}
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {Array.from(selectedAccounts).map(account => (
+                              <TableRow key={account}>
+                                <TableCell className="font-medium sticky left-0 bg-background z-10">{account}</TableCell>
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(month => (
+                                  <TableCell key={month} className="text-right">
+                                    {monthlyData[account]?.[month]?.toLocaleString() || '0'}
+                                  </TableCell>
+                                ))}
+                              </TableRow>
                             ))}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </ScrollArea>
+                  </div>
                 )}
               </CardContent>
             </Card>
