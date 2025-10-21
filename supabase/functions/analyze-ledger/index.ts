@@ -58,8 +58,58 @@ serve(async (req) => {
 
     console.log(`Filtered ${ledgerData.length} rows to ${filteredData.length} rows`);
 
-    // Prepare data summary for AI
-    const dataSummary = JSON.stringify(filteredData).slice(0, 10000); // Limit size
+    // 월별로 데이터 집계
+    const monthlyStats: any = {};
+    for (let month = 1; month <= 12; month++) {
+      monthlyStats[month] = { debit: 0, credit: 0, count: 0, clients: new Set() };
+    }
+
+    filteredData.forEach((row: any) => {
+      const dateStr = row['__EMPTY'] || row['날짜'];
+      if (!dateStr || typeof dateStr !== 'string') return;
+
+      let month: number | null = null;
+      if (dateStr.includes('-')) {
+        const parts = dateStr.split('-');
+        if (parts.length === 2) {
+          month = parseInt(parts[0], 10);
+        }
+      }
+
+      if (month && month >= 1 && month <= 12) {
+        const debit = parseFloat(String(row['__EMPTY_3'] || row['차   변'] || 0).replace(/,/g, '')) || 0;
+        const credit = parseFloat(String(row['__EMPTY_4'] || row['대   변'] || 0).replace(/,/g, '')) || 0;
+        
+        monthlyStats[month].debit += debit;
+        monthlyStats[month].credit += credit;
+        monthlyStats[month].count += 1;
+
+        // 거래처 추출
+        const possibleClientFields = ['계   정   별   원   장', '__EMPTY_1', '__EMPTY_2', '거래처'];
+        for (const field of possibleClientFields) {
+          const client = row[field];
+          if (client && typeof client === 'string' && client.trim()) {
+            monthlyStats[month].clients.add(client.trim());
+            break;
+          }
+        }
+      }
+    });
+
+    // Set을 배열로 변환하고 거래처 개수만 포함
+    const monthlySummary = Object.entries(monthlyStats).map(([month, stats]: [string, any]) => ({
+      month: parseInt(month),
+      debit: stats.debit,
+      credit: stats.credit,
+      transactions: stats.count,
+      uniqueClients: stats.clients.size,
+    }));
+
+    const dataSummary = JSON.stringify({
+      totalRows: filteredData.length,
+      monthlySummary,
+      sampleRows: filteredData.slice(0, 20) // 샘플 데이터
+    });
 
     let systemPrompt = '';
     let userPrompt = '';
@@ -68,20 +118,20 @@ serve(async (req) => {
     
     switch (analysisType) {
       case 'trend':
-        systemPrompt = '당신은 회계 전문가입니다. 계정별원장 데이터를 분석하여 주요 추세와 패턴을 찾아주세요.';
-        userPrompt = `${accountPrefix}다음 계정별원장 데이터를 분석하여 주요 추세를 설명해주세요:\n\n${dataSummary}\n\n다음 형식으로 답변해주세요:\n1. 주요 발견사항 (3-5개)\n2. 추세 분석\n3. 주의사항`;
+        systemPrompt = '당신은 회계 전문가입니다. 월별로 집계된 계정별원장 데이터를 분석하여 연간 추세와 패턴을 찾아주세요.';
+        userPrompt = `${accountPrefix}다음은 월별로 집계된 계정별원장 데이터입니다:\n\n${dataSummary}\n\n1월부터 12월까지 전체 기간을 분석하여 다음을 설명해주세요:\n1. 월별 주요 추세 (증가/감소 패턴)\n2. 계절적 패턴이나 특이사항\n3. 거래량과 금액의 변화\n4. 주의가 필요한 월과 그 이유`;
         break;
       case 'anomaly':
-        systemPrompt = '당신은 회계 감사 전문가입니다. 계정별원장에서 이상 거래나 비정상적인 패턴을 찾아주세요.';
-        userPrompt = `${accountPrefix}다음 계정별원장 데이터에서 이상 거래나 비정상적인 패턴을 찾아주세요:\n\n${dataSummary}\n\n다음 항목을 확인해주세요:\n1. 비정상적으로 큰 금액의 거래\n2. 불균형한 차변/대변\n3. 의심스러운 거래 패턴\n4. 권장사항`;
+        systemPrompt = '당신은 회계 감사 전문가입니다. 월별 집계 데이터에서 이상 패턴을 찾아주세요.';
+        userPrompt = `${accountPrefix}다음은 월별로 집계된 계정별원장 데이터입니다:\n\n${dataSummary}\n\n1월부터 12월까지 전체 기간을 검토하여:\n1. 비정상적인 금액 변동이 있는 월\n2. 거래 패턴의 급격한 변화\n3. 차변/대변 불균형이 심한 기간\n4. 권장 조치사항`;
         break;
       case 'balance':
-        systemPrompt = '당신은 회계 전문가입니다. 계정별원장의 차변과 대변의 균형을 확인해주세요.';
-        userPrompt = `${accountPrefix}다음 계정별원장 데이터의 차변/대변 균형을 분석해주세요:\n\n${dataSummary}\n\n다음 정보를 제공해주세요:\n1. 전체 차변 합계\n2. 전체 대변 합계\n3. 차이 분석\n4. 균형 상태 평가`;
+        systemPrompt = '당신은 회계 전문가입니다. 월별 집계 데이터로 차변/대변 균형을 분석해주세요.';
+        userPrompt = `${accountPrefix}다음은 월별로 집계된 계정별원장 데이터입니다:\n\n${dataSummary}\n\n1월부터 12월까지:\n1. 월별 차변/대변 합계\n2. 연간 총 차변/대변\n3. 불균형이 큰 월과 원인\n4. 전체 균형 상태 평가`;
         break;
       default:
-        systemPrompt = '당신은 회계 전문가입니다. 계정별원장 데이터에 대한 전반적인 재무 인사이트를 제공해주세요.';
-        userPrompt = `${accountPrefix}다음 계정별원장 데이터를 분석하여 전반적인 재무 인사이트를 제공해주세요:\n\n${dataSummary}\n\n다음 내용을 포함해주세요:\n1. 전체 요약\n2. 주요 발견사항\n3. 개선 제안\n4. 주의사항`;
+        systemPrompt = '당신은 회계 전문가입니다. 월별 집계 데이터로 전반적인 재무 인사이트를 제공해주세요.';
+        userPrompt = `${accountPrefix}다음은 월별로 집계된 계정별원장 데이터입니다:\n\n${dataSummary}\n\n1월부터 12월까지 전체 기간을 분석하여:\n1. 연간 재무 흐름 요약\n2. 분기별/월별 주요 발견사항\n3. 개선이 필요한 영역\n4. 실행 가능한 권장사항`;
     }
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
