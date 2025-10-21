@@ -66,12 +66,15 @@ const DualOffsetAnalysis = () => {
 
   // 거래처 정보 추출
   const extractClient = (row: any): string | null => {
-    // 날짜 필드가 없으면 헤더 행이므로 제외
+    // 날짜 필드가 있는 실제 거래 행만 처리
     const dateField = row['__EMPTY'];
-    if (!dateField || typeof dateField !== 'string') return null;
+    if (!dateField) return null;
     
-    // 날짜 형식이 아니면 제외 (예: "날짜", "2025.01.01 ~ 2025.12.31")
-    if (!dateField.match(/^\d{2}-\d{2}$/)) return null;
+    // 명확한 헤더 텍스트 제외
+    if (typeof dateField === 'string' && 
+        (dateField.includes('2025.') || dateField === '날짜' || dateField === '')) {
+      return null;
+    }
     
     // 실제 데이터 필드명에 맞춰 수정
     const clientFields = ['계   정   별   원   장', '거래처', '거래처명', '거래처코드', '__EMPTY_1', '적요'];
