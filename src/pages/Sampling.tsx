@@ -113,7 +113,9 @@ const Sampling = () => {
     // Filter data for selected account
     const accountData = ledgerData.filter(row => {
       const sheetName = row['시트명'] || row['계정과목'] || row['계정명'];
-      return sheetName === selectedSamplingAccount;
+      const dateStr = row['__EMPTY'];
+      // Exclude rows without dates (these are usually subtotals/totals)
+      return sheetName === selectedSamplingAccount && dateStr && typeof dateStr === 'string' && dateStr.trim() !== '';
     });
 
     if (accountData.length === 0) {
@@ -188,9 +190,10 @@ const Sampling = () => {
       ['샘플 크기', sampledData.length],
       ['추출 일시', new Date().toLocaleString('ko-KR')],
       [],
-      ['날짜', '적요', '차변', '대변', '잔액'],
+      ['날짜', '거래처', '적요', '차변', '대변', '잔액'],
       ...sampledData.map(row => [
         row['__EMPTY'] || '',
+        row['__EMPTY_1'] || '',
         row['__EMPTY_2'] || '',
         row['__EMPTY_3'] || 0,
         row['__EMPTY_4'] || 0,
@@ -201,6 +204,7 @@ const Sampling = () => {
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [
       { wch: 15 },
+      { wch: 30 },
       { wch: 40 },
       { wch: 15 },
       { wch: 15 },
@@ -364,6 +368,7 @@ const Sampling = () => {
                       <TableHeader>
                         <TableRow>
                           <TableHead className="font-semibold">날짜</TableHead>
+                          <TableHead className="font-semibold">거래처</TableHead>
                           <TableHead className="font-semibold">적요</TableHead>
                           <TableHead className="font-semibold text-right">차변</TableHead>
                           <TableHead className="font-semibold text-right">대변</TableHead>
@@ -374,6 +379,7 @@ const Sampling = () => {
                         {sampledData.map((row, idx) => (
                           <TableRow key={idx}>
                             <TableCell>{row['__EMPTY'] || '-'}</TableCell>
+                            <TableCell className="max-w-[200px] truncate">{row['__EMPTY_1'] || '-'}</TableCell>
                             <TableCell className="max-w-[300px] truncate">{row['__EMPTY_2'] || '-'}</TableCell>
                             <TableCell className="text-right">
                               {parseFloat(row['__EMPTY_3'] || 0).toLocaleString()}
