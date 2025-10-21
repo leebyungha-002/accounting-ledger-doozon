@@ -64,22 +64,37 @@ const DualOffsetAnalysis = () => {
     }
   };
 
-  // 거래처 정보 추출 - 단순화
+  // 거래처 정보 추출 - 개선
   const extractClient = (row: any): string | null => {
     // 가능한 필드명들 확인
-    const possibleFields = ['계   정   별   원   장', '__EMPTY_1', '__EMPTY_2', '거래처', '거래처명'];
+    const possibleFields = ['거래처', '거래처명', '계   정   별   원   장', '__EMPTY_1', '__EMPTY_2'];
     
     for (const field of possibleFields) {
       const value = row[field];
       if (value) {
         const strValue = String(value).trim();
-        // 헤더가 아니고, 실제 값이 있으면 반환
+        
+        // 제외할 패턴들
+        const excludePatterns = [
+          '원   장',
+          '적    요',
+          '날짜',
+          '거래처',
+          '합계',
+          '총합계',
+          '[ 월',
+          '[ 누',
+          ']',
+          '차   변',
+          '대   변',
+          '잔   액',
+          '코드'
+        ];
+        
+        // 헤더나 합계 행이 아니고, 실제 값이 있으면 반환
         if (strValue && 
             strValue.length > 0 &&
-            !strValue.includes('원   장') && 
-            !strValue.includes('적    요') &&
-            !strValue.includes('날짜') &&
-            strValue !== '거래처') {
+            !excludePatterns.some(pattern => strValue.includes(pattern))) {
           return strValue;
         }
       }
