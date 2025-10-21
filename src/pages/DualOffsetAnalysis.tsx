@@ -76,8 +76,9 @@ const DualOffsetAnalysis = () => {
     const expenseAccounts = ['판매비', '관리비', '판매비와관리비', '급여', '복리후생비', '접대비', '통신비', '지급수수료', '광고선전비', '광고비', '운반비', '수선비', '소모품비', '도서인쇄비', '차량유지비', '여비교통비', '세금과공과', '감가상각비', '보험료', '임차료', '수도광열비'];
 
     const clientsByAccount = new Map<string, Set<string>>();
+    const debugInfo: any[] = [];
 
-    ledgerData.forEach(row => {
+    ledgerData.forEach((row, idx) => {
       const client = extractClient(row);
       const account = row['시트명'] || '';
       
@@ -87,8 +88,15 @@ const DualOffsetAnalysis = () => {
       const isExpense = expenseAccounts.some(acc => account.includes(acc));
 
       // 디버깅: Frontier 거래처 확인
-      if (client.includes('Frontier')) {
-        console.log('Frontier 발견:', { client, account, isSales, isExpense });
+      if (client.toLowerCase().includes('frontier')) {
+        debugInfo.push({ 
+          row: idx, 
+          client, 
+          account, 
+          isSales, 
+          isExpense,
+          allFields: row 
+        });
       }
 
       if (isSales || isExpense) {
@@ -101,7 +109,17 @@ const DualOffsetAnalysis = () => {
       }
     });
 
-    console.log('clientsByAccount:', Array.from(clientsByAccount.entries()));
+    if (debugInfo.length > 0) {
+      console.log('=== Frontier 디버깅 정보 ===');
+      debugInfo.forEach(info => console.log(info));
+    }
+
+    console.log('=== 이중 거래처 맵 ===');
+    clientsByAccount.forEach((types, client) => {
+      if (client.toLowerCase().includes('frontier')) {
+        console.log(`${client}:`, Array.from(types));
+      }
+    });
 
     const dualClients: Array<{ client: string; accounts: string[] }> = [];
     clientsByAccount.forEach((types, client) => {
