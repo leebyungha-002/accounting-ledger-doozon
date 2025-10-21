@@ -200,41 +200,32 @@ const DualOffsetAnalysis = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>시트명</TableHead>
-                  <TableHead>거래처</TableHead>
-                  <TableHead>거래처명</TableHead>
-                  <TableHead>거래처코드</TableHead>
-                  <TableHead>적요</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            {ledgerData.length > 0 && (
+              <div className="space-y-4">
                 {ledgerData
                   .filter(row => {
                     if (!searchQuery) return true;
                     const search = searchQuery.toLowerCase();
-                    return (
-                      (row['거래처'] && String(row['거래처']).toLowerCase().includes(search)) ||
-                      (row['거래처명'] && String(row['거래처명']).toLowerCase().includes(search)) ||
-                      (row['거래처코드'] && String(row['거래처코드']).toLowerCase().includes(search)) ||
-                      (row['적요'] && String(row['적요']).toLowerCase().includes(search)) ||
-                      (row['시트명'] && String(row['시트명']).toLowerCase().includes(search))
+                    return Object.values(row).some(val => 
+                      val && String(val).toLowerCase().includes(search)
                     );
                   })
-                  .slice(0, 50)
+                  .slice(0, 20)
                   .map((row, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{row['시트명']}</TableCell>
-                      <TableCell>{row['거래처']}</TableCell>
-                      <TableCell>{row['거래처명']}</TableCell>
-                      <TableCell>{row['거래처코드']}</TableCell>
-                      <TableCell className="max-w-xs truncate">{row['적요']}</TableCell>
-                    </TableRow>
+                    <Card key={index} className="p-4">
+                      <div className="text-sm font-semibold mb-2">행 #{index + 1}</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                        {Object.entries(row).map(([key, value]) => (
+                          <div key={key} className="flex gap-2">
+                            <span className="font-medium text-muted-foreground">{key}:</span>
+                            <span className="break-all">{String(value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
                   ))}
-              </TableBody>
-            </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
 
