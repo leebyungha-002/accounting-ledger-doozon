@@ -89,6 +89,20 @@ const Sampling = () => {
     return Array.from(accounts).sort();
   }, [ledgerData]);
 
+  // 샘플링 방법 설명
+  const getSamplingMethodDescription = (method: string): string => {
+    switch (method) {
+      case 'random':
+        return '무작위 샘플링: 모든 항목이 동일한 확률로 선택되어 편향 없는 표본을 제공합니다. 통계적으로 가장 기본적인 방법입니다.';
+      case 'systematic':
+        return '체계적 샘플링: 일정한 간격으로 항목을 선택하여 전체 모집단을 고르게 대표합니다. 시간순 또는 순서가 있는 데이터에 적합합니다.';
+      case 'monetary':
+        return '금액가중 샘플링(MUS): 금액이 큰 항목에 더 높은 선택 확률을 부여하여 중요도가 높은 거래를 집중 검토합니다. 회계감사에서 널리 사용됩니다.';
+      default:
+        return '';
+    }
+  };
+
   // Perform sampling
   const performSampling = () => {
     if (!selectedSamplingAccount) {
@@ -344,9 +358,14 @@ const Sampling = () => {
                   <div>
                     <CardTitle>샘플링 결과</CardTitle>
                     <CardDescription>
-                      {sampledData.length > 0 
-                        ? `${sampledData.length}개 항목이 선택되었습니다`
-                        : '샘플링을 실행하세요'}
+                      {sampledData.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="font-medium">{sampledData.length}개 항목이 선택되었습니다</p>
+                          <p className="text-sm">{getSamplingMethodDescription(samplingMethod)}</p>
+                        </div>
+                      ) : (
+                        '샘플링을 실행하세요'
+                      )}
                     </CardDescription>
                   </div>
                   {sampledData.length > 0 && (
