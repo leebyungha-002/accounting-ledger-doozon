@@ -67,8 +67,8 @@ const DualOffsetAnalysis = () => {
 
   // 거래처 정보 추출 - 개선
   const extractClient = (row: any): string | null => {
-    // 거래처명은 '계   정   별   원   장' 필드에 있습니다
-    const clientField = row['계   정   별   원   장'];
+    // 거래처명은 '거래처' 필드에 있습니다
+    const clientField = row['거래처'];
     
     if (!clientField) return null;
     
@@ -184,20 +184,21 @@ const DualOffsetAnalysis = () => {
           시트명: sheetName,
           추출된거래처: client,
           원본데이터: {
-            계정별원장: row['계   정   별   원   장'],
-            EMPTY_1: row['__EMPTY_1'],
-            EMPTY_2: row['__EMPTY_2'],
-            EMPTY_3: row['__EMPTY_3'],
-            EMPTY_4: row['__EMPTY_4']
+            날짜: row['날짜'],
+            적요: row['적    요    란'],
+            코드: row['코드'],
+            거래처: row['거래처'],
+            차변: row['차   변'],
+            대변: row['대   변']
           }
         });
       }
 
       if (!client) return;
 
-      // 금액 필드
-      const debitValue = row['__EMPTY_3'];
-      const creditValue = row['__EMPTY_4'];
+      // 금액 필드 - 한글 필드명 사용
+      const debitValue = row['차   변'];
+      const creditValue = row['대   변'];
       
       // 숫자로 변환
       let debitNum = 0;

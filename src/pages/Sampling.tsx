@@ -109,8 +109,8 @@ const Sampling = () => {
 
   // 거래처명 추출 함수
   const extractClient = (row: any): string => {
-    // 거래처명은 '계   정   별   원   장' 필드에 있습니다
-    const clientField = row['계   정   별   원   장'];
+    // 거래처명은 '거래처' 필드에 있습니다
+    const clientField = row['거래처'];
     
     if (!clientField) return '-';
     
@@ -164,15 +164,15 @@ const Sampling = () => {
     
     const accountData = ledgerData.filter(row => {
       const sheetName = row['시트명'] || row['계정과목'] || row['계정명'];
-      const dateStr = row['__EMPTY'];
+      const dateStr = row['날짜'];
       return sheetName === selectedSamplingAccount && dateStr && typeof dateStr === 'string' && dateStr.trim() !== '';
     });
 
     const accountType = getAccountType(selectedSamplingAccount);
     
     const totalAmount = accountData.reduce((sum, row) => {
-      const debit = parseFloat(row['__EMPTY_3']) || 0;
-      const credit = parseFloat(row['__EMPTY_4']) || 0;
+      const debit = parseFloat(row['차   변']) || 0;
+      const credit = parseFloat(row['대   변']) || 0;
       // 계정 유형에 따라 금액 합산
       const amount = accountType === 'debit' ? Math.abs(debit) : Math.abs(credit);
       return sum + amount;
@@ -230,14 +230,18 @@ const Sampling = () => {
     
     if (firstRow) {
       console.log('=== 샘플 데이터 구조 확인 ===');
+    if (firstRow) {
+      console.log('=== 샘플 데이터 구조 확인 ===');
       console.log('전체 필드:', Object.keys(firstRow));
-      console.log('__EMPTY (날짜):', firstRow['__EMPTY']);
-      console.log('__EMPTY_1 (적요):', firstRow['__EMPTY_1']);
-      console.log('__EMPTY_2 (코드):', firstRow['__EMPTY_2']);
-      console.log('계   정   별   원   장 (거래처):', firstRow['계   정   별   원   장']);
-      console.log('__EMPTY_3 (차변):', firstRow['__EMPTY_3']);
-      console.log('__EMPTY_4 (대변):', firstRow['__EMPTY_4']);
-      console.log('__EMPTY_5 (잔액):', firstRow['__EMPTY_5']);
+      console.log('날짜:', firstRow['날짜']);
+      console.log('적    요    란:', firstRow['적    요    란']);
+      console.log('코드:', firstRow['코드']);
+      console.log('거래처:', firstRow['거래처']);
+      console.log('차   변:', firstRow['차   변']);
+      console.log('대   변:', firstRow['대   변']);
+      console.log('잔   액:', firstRow['잔   액']);
+      console.log('계   정   별   원   장:', firstRow['계   정   별   원   장']);
+    }
       console.log('계   정   별   원   장:', firstRow['계   정   별   원   장']);
     }
 
@@ -268,7 +272,7 @@ const Sampling = () => {
     // Filter data for selected account
     const accountData = ledgerData.filter(row => {
       const sheetName = row['시트명'] || row['계정과목'] || row['계정명'];
-      const dateStr = row['__EMPTY'];
+      const dateStr = row['날짜'];
       // Exclude rows without dates (these are usually subtotals/totals)
       return sheetName === selectedSamplingAccount && dateStr && typeof dateStr === 'string' && dateStr.trim() !== '';
     });
@@ -297,8 +301,8 @@ const Sampling = () => {
     } else if (samplingMethod === 'monetary') {
       // Monetary Unit Sampling (MUS) - weighted by amount based on account type
       const dataWithAmounts = accountData.map(row => {
-        const debitAmount = Math.abs(parseFloat(row['__EMPTY_3']) || 0);
-        const creditAmount = Math.abs(parseFloat(row['__EMPTY_4']) || 0);
+        const debitAmount = Math.abs(parseFloat(row['차   변']) || 0);
+        const creditAmount = Math.abs(parseFloat(row['대   변']) || 0);
         
         // 계정 유형에 따라 샘플링 기준 금액 결정
         const amount = accountType === 'debit' ? debitAmount : creditAmount;
@@ -372,13 +376,13 @@ const Sampling = () => {
       ...headerData,
       ['날짜', '적요', '코드', '거래처', '차변', '대변', '잔액'],
       ...sampledData.map(row => [
-        row['__EMPTY'] || '',
-        row['__EMPTY_1'] || '',
-        row['__EMPTY_2'] || '',
+        row['날짜'] || '',
+        row['적    요    란'] || '',
+        row['코드'] || '',
         extractClient(row),
-        row['__EMPTY_3'] || 0,
-        row['__EMPTY_4'] || 0,
-        row['__EMPTY_5'] || 0,
+        row['차   변'] || 0,
+        row['대   변'] || 0,
+        row['잔   액'] || 0,
       ]),
     ];
 
@@ -685,18 +689,18 @@ const Sampling = () => {
                       <TableBody>
                         {sampledData.map((row, idx) => (
                           <TableRow key={idx}>
-                            <TableCell>{row['__EMPTY'] || '-'}</TableCell>
-                            <TableCell className="max-w-[300px] truncate">{row['__EMPTY_1'] || '-'}</TableCell>
-                            <TableCell>{row['__EMPTY_2'] || '-'}</TableCell>
+                            <TableCell>{row['날짜'] || '-'}</TableCell>
+                            <TableCell className="max-w-[300px] truncate">{row['적    요    란'] || '-'}</TableCell>
+                            <TableCell>{row['코드'] || '-'}</TableCell>
                             <TableCell className="max-w-[200px] truncate">{extractClient(row)}</TableCell>
                             <TableCell className="text-right">
-                              {parseFloat(row['__EMPTY_3'] || 0).toLocaleString()}
+                              {parseFloat(row['차   변'] || 0).toLocaleString()}
                             </TableCell>
                             <TableCell className="text-right">
-                              {parseFloat(row['__EMPTY_4'] || 0).toLocaleString()}
+                              {parseFloat(row['대   변'] || 0).toLocaleString()}
                             </TableCell>
                             <TableCell className="text-right">
-                              {parseFloat(row['__EMPTY_5'] || 0).toLocaleString()}
+                              {parseFloat(row['잔   액'] || 0).toLocaleString()}
                             </TableCell>
                           </TableRow>
                         ))}
