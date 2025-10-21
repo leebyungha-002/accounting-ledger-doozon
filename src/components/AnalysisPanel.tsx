@@ -4,11 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { TrendingUp, AlertTriangle, Scale, Sparkles, Loader2, Check, ChevronsUpDown } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Scale, Sparkles, Loader2, Check, ChevronsUpDown, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
+import * as XLSX from 'xlsx';
 
 interface AnalysisPanelProps {
   ledgerData: any[];
@@ -41,6 +42,44 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
     }
     return ledgerData.filter(row => row['시트명'] === selectedAccount);
   }, [ledgerData, selectedAccount]);
+
+  const downloadAnalysis = (analysisType: string) => {
+    const analysisKey = `${selectedAccount}-${analysisType}`;
+    const analysisContent = analyses[analysisKey];
+    
+    if (!analysisContent) {
+      toast({
+        title: '오류',
+        description: '다운로드할 분석 결과가 없습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const typeName = analysisTypes.find(t => t.id === analysisType)?.name || analysisType;
+    const accountName = selectedAccount === 'all' ? '전체계정' : selectedAccount;
+    
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['분석 유형', typeName],
+      ['계정', accountName],
+      ['분석 일시', new Date().toLocaleString('ko-KR')],
+      [],
+      ['분석 결과'],
+      [analysisContent],
+    ];
+    
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{ wch: 15 }, { wch: 80 }];
+    
+    XLSX.utils.book_append_sheet(wb, ws, '분석결과');
+    XLSX.writeFile(wb, `AI분석_${typeName}_${accountName}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    
+    toast({
+      title: '다운로드 완료',
+      description: '분석 결과를 엑셀 파일로 저장했습니다.',
+    });
+  };
 
   const runAnalysis = async (analysisType: string) => {
     setLoading(analysisType);
@@ -217,11 +256,23 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
               <p className="text-sm text-muted-foreground">{type.description}</p>
 
               {analyses[`${selectedAccount}-${type.id}`] && (
-                <div className="mt-4 p-4 bg-muted rounded-lg">
-                  <div className="prose prose-sm max-w-none dark:prose-invert">
-                    <ReactMarkdown>{analyses[`${selectedAccount}-${type.id}`]}</ReactMarkdown>
+                <>
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadAnalysis(type.id)}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      엑셀 다운로드
+                    </Button>
                   </div>
-                </div>
+                  <div className="mt-4 p-4 bg-muted rounded-lg">
+                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                      <ReactMarkdown>{analyses[`${selectedAccount}-${type.id}`]}</ReactMarkdown>
+                    </div>
+                  </div>
+                </>
               )}
             </TabsContent>
           ))}

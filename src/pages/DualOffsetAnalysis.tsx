@@ -5,10 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ArrowLeft, Search, Check, ChevronsUpDown } from 'lucide-react';
+import { ArrowLeft, Search, Check, ChevronsUpDown, Download } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import * as XLSX from 'xlsx';
 
 const DualOffsetAnalysis = () => {
   const navigate = useNavigate();
@@ -100,6 +101,44 @@ const DualOffsetAnalysis = () => {
       }
     }
     return null;
+  };
+
+  const downloadExcel = () => {
+    if (!debitAccount || !creditAccount || dualClients.length === 0) {
+      toast({
+        title: '오류',
+        description: '다운로드할 데이터가 없습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['이중/상계 가능 거래처 분석'],
+      ['차변 계정', debitAccount],
+      ['대변 계정', creditAccount],
+      ['분석 일시', new Date().toLocaleString('ko-KR')],
+      [],
+      ['번호', '거래처명', `${debitAccount} 합계`, `${creditAccount} 합계`],
+      ...dualClients.map((item, index) => [
+        index + 1,
+        item.client,
+        item.debitAmount,
+        item.creditAmount,
+      ]),
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 20 }, { wch: 20 }];
+
+    XLSX.utils.book_append_sheet(wb, ws, '거래처분석');
+    XLSX.writeFile(wb, `이중상계거래처분석_${debitAccount}_${creditAccount}_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+    toast({
+      title: '다운로드 완료',
+      description: '분석 결과를 엑셀 파일로 저장했습니다.',
+    });
   };
 
   // 모든 계정(시트명) 목록
@@ -345,12 +384,22 @@ const DualOffsetAnalysis = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>검색 결과</CardTitle>
-            <CardDescription>
-              {debitAccount && creditAccount
-                ? `차변: "${debitAccount}" / 대변: "${creditAccount}"`
-                : '차변과 대변 계정을 선택해주세요'}
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>검색 결과</CardTitle>
+                <CardDescription>
+                  {debitAccount && creditAccount
+                    ? `차변: "${debitAccount}" / 대변: "${creditAccount}"`
+                    : '차변과 대변 계정을 선택해주세요'}
+                </CardDescription>
+              </div>
+              {debitAccount && creditAccount && dualClients.length > 0 && (
+                <Button variant="outline" size="sm" onClick={downloadExcel}>
+                  <Download className="mr-2 h-4 w-4" />
+                  엑셀 다운로드
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {debitAccount && creditAccount ? (

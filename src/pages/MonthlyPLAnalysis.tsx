@@ -5,9 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowLeft, TrendingUp } from 'lucide-react';
+import { ArrowLeft, TrendingUp, Download } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import * as XLSX from 'xlsx';
 
 const MonthlyPLAnalysis = () => {
   const navigate = useNavigate();
@@ -135,6 +136,50 @@ const MonthlyPLAnalysis = () => {
     return data;
   }, [ledgerData, selectedAccounts]);
 
+  const downloadExcel = () => {
+    if (selectedAccounts.size === 0) {
+      toast({
+        title: '오류',
+        description: '다운로드할 계정을 선택해주세요.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['월별 손익분석'],
+      ['분석 일시', new Date().toLocaleString('ko-KR')],
+      [],
+      ['계정명', '1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월', '합계'],
+      ...Array.from(selectedAccounts).map(account => {
+        const yearTotal = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].reduce(
+          (sum, month) => sum + (monthlyData[account]?.[month] || 0),
+          0
+        );
+        return [
+          account,
+          ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(month => monthlyData[account]?.[month] || 0),
+          yearTotal,
+        ];
+      }),
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 30 },
+      ...Array(13).fill({ wch: 15 }),
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, '월별손익');
+    XLSX.writeFile(wb, `월별손익분석_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+    toast({
+      title: '다운로드 완료',
+      description: '분석 결과를 엑셀 파일로 저장했습니다.',
+    });
+  };
+
   const toggleAccount = (account: string) => {
     setSelectedAccounts(prev => {
       const newSet = new Set(prev);
@@ -214,10 +259,20 @@ const MonthlyPLAnalysis = () => {
           <div className="lg:col-span-3">
             <Card>
               <CardHeader>
-                <CardTitle>월별 합계금액</CardTitle>
-                <CardDescription>
-                  선택된 계정의 월별 금액을 확인하세요
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>월별 합계금액</CardTitle>
+                    <CardDescription>
+                      선택된 계정의 월별 금액을 확인하세요
+                    </CardDescription>
+                  </div>
+                  {selectedAccounts.size > 0 && (
+                    <Button variant="outline" size="sm" onClick={downloadExcel}>
+                      <Download className="mr-2 h-4 w-4" />
+                      엑셀 다운로드
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {selectedAccounts.size === 0 ? (
