@@ -107,6 +107,48 @@ const Sampling = () => {
     return 'debit';
   };
 
+  // 거래처명 추출 함수
+  const extractClient = (row: any): string => {
+    const possibleFields = ['거래처', '거래처명', '__EMPTY_3', '__EMPTY_2'];
+    
+    for (const field of possibleFields) {
+      const value = row[field];
+      if (value) {
+        const strValue = String(value).trim();
+        
+        // 제외할 패턴들
+        const excludePatterns = [
+          '원   장',
+          '적    요',
+          '날짜',
+          '거래처',
+          '합계',
+          '총합계',
+          '[ 월',
+          '[ 누',
+          ']',
+          '차   변',
+          '대   변',
+          '잔   액',
+          '코드'
+        ];
+        
+        // 숫자만으로 구성된 경우 건너뛰기 (거래처 코드일 가능성)
+        if (/^\d+$/.test(strValue)) {
+          continue;
+        }
+        
+        // 헤더나 합계 행이 아니고, 실제 값이 있으면 반환
+        if (strValue && 
+            strValue.length > 0 &&
+            !excludePatterns.some(pattern => strValue.includes(pattern))) {
+          return strValue;
+        }
+      }
+    }
+    return row['__EMPTY_2'] || '-';
+  };
+
   // Get all unique accounts for sampling
   const allAccounts = useMemo(() => {
     const accounts = new Set<string>();
@@ -315,7 +357,7 @@ const Sampling = () => {
       ...sampledData.map(row => [
         row['__EMPTY'] || '',
         row['__EMPTY_1'] || '',
-        row['__EMPTY_2'] || '',
+        extractClient(row),
         row['__EMPTY_3'] || 0,
         row['__EMPTY_4'] || 0,
         row['__EMPTY_5'] || 0,
@@ -625,7 +667,7 @@ const Sampling = () => {
                           <TableRow key={idx}>
                             <TableCell>{row['__EMPTY'] || '-'}</TableCell>
                             <TableCell className="max-w-[300px] truncate">{row['__EMPTY_1'] || '-'}</TableCell>
-                            <TableCell className="max-w-[200px] truncate">{row['__EMPTY_2'] || '-'}</TableCell>
+                            <TableCell className="max-w-[200px] truncate">{extractClient(row)}</TableCell>
                             <TableCell className="text-right">
                               {parseFloat(row['__EMPTY_3'] || 0).toLocaleString()}
                             </TableCell>
