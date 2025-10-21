@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { ArrowLeft, AlertTriangle, Search } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -12,6 +13,7 @@ const DualOffsetAnalysis = () => {
   const { toast } = useToast();
   const [ledgerData, setLedgerData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadLatestLedger();
@@ -185,8 +187,17 @@ const DualOffsetAnalysis = () => {
           <CardHeader>
             <CardTitle>데이터 샘플 (디버깅용)</CardTitle>
             <CardDescription>
-              실제 데이터 구조 확인
+              실제 데이터 구조 확인 - 총 {ledgerData.length}개 행
             </CardDescription>
+            <div className="flex gap-2 items-center mt-4">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="거래처 검색..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="max-w-sm"
+              />
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -200,15 +211,28 @@ const DualOffsetAnalysis = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ledgerData.slice(0, 20).map((row, index) => (
-                  <TableRow key={index}>
-                    <TableCell>{row['시트명']}</TableCell>
-                    <TableCell>{row['거래처']}</TableCell>
-                    <TableCell>{row['거래처명']}</TableCell>
-                    <TableCell>{row['거래처코드']}</TableCell>
-                    <TableCell>{row['적요']}</TableCell>
-                  </TableRow>
-                ))}
+                {ledgerData
+                  .filter(row => {
+                    if (!searchQuery) return true;
+                    const search = searchQuery.toLowerCase();
+                    return (
+                      (row['거래처'] && String(row['거래처']).toLowerCase().includes(search)) ||
+                      (row['거래처명'] && String(row['거래처명']).toLowerCase().includes(search)) ||
+                      (row['거래처코드'] && String(row['거래처코드']).toLowerCase().includes(search)) ||
+                      (row['적요'] && String(row['적요']).toLowerCase().includes(search)) ||
+                      (row['시트명'] && String(row['시트명']).toLowerCase().includes(search))
+                    );
+                  })
+                  .slice(0, 50)
+                  .map((row, index) => (
+                    <TableRow key={index}>
+                      <TableCell>{row['시트명']}</TableCell>
+                      <TableCell>{row['거래처']}</TableCell>
+                      <TableCell>{row['거래처명']}</TableCell>
+                      <TableCell>{row['거래처코드']}</TableCell>
+                      <TableCell className="max-w-xs truncate">{row['적요']}</TableCell>
+                    </TableRow>
+                  ))}
               </TableBody>
             </Table>
           </CardContent>
