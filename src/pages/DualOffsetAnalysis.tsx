@@ -84,9 +84,13 @@ const DualOffsetAnalysis = () => {
       const isSales = salesAccounts.some(acc => account.includes(acc));
       const isExpense = expenseAccounts.some(acc => account.includes(acc));
 
+      // 디버깅: Frontier 거래처 확인
+      if (client.includes('Frontier')) {
+        console.log('Frontier 발견:', { client, account, isSales, isExpense });
+      }
+
       if (isSales || isExpense) {
         const accountType = isSales ? 'sales' : 'expense';
-        const key = `${client}:${accountType}`;
         
         if (!clientsByAccount.has(client)) {
           clientsByAccount.set(client, new Set());
@@ -94,6 +98,8 @@ const DualOffsetAnalysis = () => {
         clientsByAccount.get(client)!.add(accountType);
       }
     });
+
+    console.log('clientsByAccount:', Array.from(clientsByAccount.entries()));
 
     const dualClients: Array<{ client: string; accounts: string[] }> = [];
     clientsByAccount.forEach((types, client) => {
@@ -174,6 +180,40 @@ const DualOffsetAnalysis = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-8">
+        {/* 디버깅: 데이터 샘플 표시 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>데이터 샘플 (디버깅용)</CardTitle>
+            <CardDescription>
+              실제 데이터 구조 확인
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>시트명</TableHead>
+                  <TableHead>거래처</TableHead>
+                  <TableHead>거래처명</TableHead>
+                  <TableHead>거래처코드</TableHead>
+                  <TableHead>적요</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ledgerData.slice(0, 20).map((row, index) => (
+                  <TableRow key={index}>
+                    <TableCell>{row['시트명']}</TableCell>
+                    <TableCell>{row['거래처']}</TableCell>
+                    <TableCell>{row['거래처명']}</TableCell>
+                    <TableCell>{row['거래처코드']}</TableCell>
+                    <TableCell>{row['적요']}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>매출-비용 이중 거래처</CardTitle>
