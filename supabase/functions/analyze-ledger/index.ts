@@ -20,8 +20,46 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
+    // 합계 행 제외 패턴
+    const excludePatterns = [
+      '합계',
+      '총합계',
+      '[ 월',
+      '[ 누',
+      ']',
+      '계   정   별   원   장',
+      '회사명',
+      '날짜',
+      '적    요    란',
+      '차   변',
+      '대   변',
+      '잔   액',
+      '코드'
+    ];
+
+    // 합계 행 필터링
+    const filteredData = ledgerData.filter((row: any) => {
+      // 거래처명 확인
+      const possibleClientFields = ['계   정   별   원   장', '__EMPTY_1', '__EMPTY_2', '거래처', '거래처명'];
+      
+      for (const field of possibleClientFields) {
+        const value = row[field];
+        if (value) {
+          const strValue = String(value).trim();
+          // 제외 패턴과 매칭되면 필터링
+          if (excludePatterns.some(pattern => strValue.includes(pattern))) {
+            return false;
+          }
+        }
+      }
+      
+      return true;
+    });
+
+    console.log(`Filtered ${ledgerData.length} rows to ${filteredData.length} rows`);
+
     // Prepare data summary for AI
-    const dataSummary = JSON.stringify(ledgerData).slice(0, 10000); // Limit size
+    const dataSummary = JSON.stringify(filteredData).slice(0, 10000); // Limit size
 
     let systemPrompt = '';
     let userPrompt = '';
