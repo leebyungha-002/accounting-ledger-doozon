@@ -169,6 +169,22 @@ const DualOffsetAnalysis = () => {
     console.log('대변 계정 샘플 데이터:', creditRows);
     console.log('차변 계정 전체 행 수:', ledgerData.filter(row => row['시트명'] === debitAccount).length);
     console.log('대변 계정 전체 행 수:', ledgerData.filter(row => row['시트명'] === creditAccount).length);
+    
+    // 대변 계정의 필드 구조 확인
+    if (creditRows.length > 0) {
+      console.log('대변 계정 첫 번째 행의 모든 키:', Object.keys(creditRows[0]));
+      creditRows.slice(0, 10).forEach((row, idx) => {
+        console.log(`대변 행 ${idx + 1}:`, {
+          거래처: row['거래처'],
+          EMPTY3: row['EMPTY3'],
+          EMPTY4: row['EMPTY4'],
+          EMPTY5: row['EMPTY5'],
+          차변: row['차 변'],
+          대변: row['대 변'],
+          allKeys: Object.keys(row).filter(k => k.includes('EMPTY') || k === '거래처')
+        });
+      });
+    }
 
     // 각 계정별로 거래처-금액 맵 생성
     const debitMap = new Map<string, number>();
