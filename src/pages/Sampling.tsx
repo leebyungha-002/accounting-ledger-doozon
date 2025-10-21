@@ -128,9 +128,9 @@ const Sampling = () => {
     
     if (isNaN(risk) || isNaN(tolerable) || tolerable <= 0) return null;
     
-    const calculated = Math.ceil((populationStats.size * risk) / tolerable);
+    const calculated = Math.ceil((populationStats.totalAmount * risk) / tolerable);
     return Math.min(calculated, populationStats.size); // Cannot exceed population size
-  }, [sampleSizeMethod, selectedSamplingAccount, riskFactor, tolerableError, populationStats.size]);
+  }, [sampleSizeMethod, selectedSamplingAccount, riskFactor, tolerableError, populationStats.totalAmount, populationStats.size]);
 
   // 샘플링 방법 설명
   const getSamplingMethodDescription = (method: string): string => {
@@ -504,13 +504,13 @@ const Sampling = () => {
                       <div className="p-3 bg-muted rounded-md space-y-1">
                         <p className="text-sm font-medium">계산 결과</p>
                         <p className="text-xs text-muted-foreground">
-                          모집단 크기: {populationStats.size.toLocaleString()}개
+                          모집단 항목 수: {populationStats.size.toLocaleString()}개
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          총 금액: {populationStats.totalAmount.toLocaleString()}원
+                          모집단 총 금액: {populationStats.totalAmount.toLocaleString()}원
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          계산식: ({populationStats.size} × {riskFactor}) / {parseFloat(tolerableError).toLocaleString()}
+                          계산식: ({populationStats.totalAmount.toLocaleString()} × {riskFactor}) / {parseFloat(tolerableError).toLocaleString()}
                         </p>
                         <p className="text-sm font-semibold text-primary">
                           권장 샘플 크기: {calculatedSampleSize}개
