@@ -167,6 +167,8 @@ const DualOffsetAnalysis = () => {
     
     console.log('차변 계정 샘플 데이터:', debitRows);
     console.log('대변 계정 샘플 데이터:', creditRows);
+    console.log('차변 계정 전체 행 수:', ledgerData.filter(row => row['시트명'] === debitAccount).length);
+    console.log('대변 계정 전체 행 수:', ledgerData.filter(row => row['시트명'] === creditAccount).length);
 
     // 각 계정별로 거래처-금액 맵 생성
     const debitMap = new Map<string, number>();
