@@ -104,25 +104,54 @@ const MonthlyPLAnalysis = () => {
       }
     });
 
-    ledgerData.forEach((row) => {
+    // 첫 번째 행의 필드명 확인
+    if (ledgerData.length > 0) {
+      console.log('데이터 필드명:', Object.keys(ledgerData[0]));
+      console.log('첫 번째 데이터 샘플:', ledgerData[0]);
+    }
+
+    ledgerData.forEach((row, index) => {
       const sheetName = row['시트명'] || row['계정과목'] || row['계정명'];
       if (!selectedAccounts.has(sheetName)) return;
 
-      const dateStr = row['전표일자'] || row['일자'] || row['거래일자'];
+      // 날짜 필드 찾기 - 모든 가능한 필드명 확인
+      const dateStr = row['전표일자'] || row['일자'] || row['거래일자'] || row['날짜'];
+      
+      if (index < 3) {
+        console.log(`행 ${index} - 시트명: ${sheetName}, 날짜: ${dateStr}, 차변: ${row['차변금액']}, 대변: ${row['대변금액']}`);
+      }
+
       if (!dateStr) return;
 
       let month: number | null = null;
-      if (typeof dateStr === 'string' && dateStr.includes('-')) {
-        const parts = dateStr.split('-');
-        if (parts.length >= 2) {
-          month = parseInt(parts[1], 10);
+      
+      // 날짜 형식 파싱 개선
+      if (typeof dateStr === 'string') {
+        if (dateStr.includes('-')) {
+          const parts = dateStr.split('-');
+          if (parts.length >= 2) {
+            month = parseInt(parts[1], 10);
+          }
+        } else if (dateStr.includes('/')) {
+          const parts = dateStr.split('/');
+          if (parts.length >= 2) {
+            month = parseInt(parts[1], 10);
+          }
+        } else if (dateStr.length === 8) {
+          // YYYYMMDD 형식
+          month = parseInt(dateStr.substring(4, 6), 10);
         }
       }
 
       if (month && month >= 1 && month <= 12) {
-        const debit = parseFloat(row['차변금액'] || row['차변'] || 0);
-        const credit = parseFloat(row['대변금액'] || row['대변'] || 0);
+        // 금액 필드 찾기 - 더 많은 가능성 확인
+        const debit = parseFloat(row['차변금액'] || row['차변'] || row['차변(원)'] || 0);
+        const credit = parseFloat(row['대변금액'] || row['대변'] || row['대변(원)'] || 0);
         const amount = debit || credit || 0;
+        
+        if (index < 3 && amount > 0) {
+          console.log(`합계 추가 - 계정: ${sheetName}, 월: ${month}, 금액: ${amount}`);
+        }
         
         if (amount > 0) {
           data[sheetName][month] += amount;
@@ -130,6 +159,7 @@ const MonthlyPLAnalysis = () => {
       }
     });
 
+    console.log('최종 월별 데이터:', data);
     return data;
   }, [ledgerData, selectedAccounts]);
 
