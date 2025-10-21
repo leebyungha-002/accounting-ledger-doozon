@@ -145,23 +145,34 @@ const Index = () => {
           <>
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>데이터 미리보기</CardTitle>
-                    <CardDescription>
-                      업로드된 파일: {fileName} ({ledgerData.length}개 항목)
-                    </CardDescription>
-                  </div>
-                  <Button onClick={() => navigate('/dual-offset-analysis')} variant="outline">
-                    <AlertTriangle className="mr-2 h-4 w-4" />
-                    이중/상계 거래처 분석
-                  </Button>
-                </div>
+                <CardTitle>데이터 미리보기</CardTitle>
+                <CardDescription>
+                  업로드된 파일: {fileName} ({ledgerData.length}개 항목)
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <LedgerDataTable data={ledgerData} />
               </CardContent>
             </Card>
+
+            <div className="flex gap-4">
+              <Button 
+                onClick={() => navigate('/dual-offset-analysis')} 
+                variant="outline"
+                className="flex-1"
+              >
+                <AlertTriangle className="mr-2 h-4 w-4" />
+                이중/상계 거래처 분석
+              </Button>
+              <Button 
+                onClick={() => navigate('/monthly-pl-analysis')} 
+                variant="outline"
+                className="flex-1"
+              >
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                월별 손익분석
+              </Button>
+            </div>
 
             <AnalysisPanel ledgerData={ledgerData} ledgerId={ledgerId} />
           </>
