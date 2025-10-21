@@ -27,9 +27,17 @@ const Sampling = () => {
   const [samplingMethod, setSamplingMethod] = useState<string>('random');
   const [sampleSizeMethod, setSampleSizeMethod] = useState<string>('manual'); // 'manual' or 'formula'
   const [sampleSize, setSampleSize] = useState<string>('30');
-  const [riskFactor, setRiskFactor] = useState<string>('1.5');
+  const [riskFactorMethod, setRiskFactorMethod] = useState<string>('table'); // 'table' or 'manual'
+  const [riskFactor, setRiskFactor] = useState<string>('3.00');
   const [tolerableError, setTolerableError] = useState<string>('1000000');
   const [sampledData, setSampledData] = useState<any[]>([]);
+
+  // 신뢰수준별 위험계수 통계표
+  const riskFactorTable = [
+    { confidenceLevel: '90%', auditRisk: '10%', factor: '2.31' },
+    { confidenceLevel: '95%', auditRisk: '5%', factor: '3.00' },
+    { confidenceLevel: '99%', auditRisk: '1%', factor: '4.61' },
+  ];
 
   useEffect(() => {
     checkAuth();
@@ -409,19 +417,72 @@ const Sampling = () => {
                 ) : (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label>위험 계수 (Risk Factor)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        value={riskFactor}
-                        onChange={(e) => setRiskFactor(e.target.value)}
-                        placeholder="1.5"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        일반적으로 1.0 ~ 3.0 사이 값 사용
-                      </p>
+                      <Label>위험 계수 입력 방법</Label>
+                      <Select value={riskFactorMethod} onValueChange={setRiskFactorMethod}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="table">통계표 참조</SelectItem>
+                          <SelectItem value="manual">직접 입력</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
+
+                    {riskFactorMethod === 'table' ? (
+                      <div className="space-y-2">
+                        <Label>신뢰수준 선택</Label>
+                        <Select value={riskFactor} onValueChange={setRiskFactor}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {riskFactorTable.map((item) => (
+                              <SelectItem key={item.factor} value={item.factor}>
+                                {item.confidenceLevel} 신뢰수준 (감사위험 {item.auditRisk}) - 계수: {item.factor}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="mt-3 p-3 bg-muted rounded-md">
+                          <p className="text-xs font-medium mb-2">위험계수 통계표</p>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs">신뢰수준</TableHead>
+                                <TableHead className="text-xs">감사위험</TableHead>
+                                <TableHead className="text-xs text-right">위험계수</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {riskFactorTable.map((item) => (
+                                <TableRow key={item.factor} className={riskFactor === item.factor ? 'bg-primary/10' : ''}>
+                                  <TableCell className="text-xs">{item.confidenceLevel}</TableCell>
+                                  <TableCell className="text-xs">{item.auditRisk}</TableCell>
+                                  <TableCell className="text-xs text-right font-medium">{item.factor}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label>위험 계수 (Risk Factor)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0.1"
+                          value={riskFactor}
+                          onChange={(e) => setRiskFactor(e.target.value)}
+                          placeholder="3.00"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          일반적으로 2.0 ~ 5.0 사이 값 사용
+                        </p>
+                      </div>
+                    )}
+
                     <div className="space-y-2">
                       <Label>허용가능 오류금액</Label>
                       <Input
@@ -443,6 +504,9 @@ const Sampling = () => {
                         </p>
                         <p className="text-xs text-muted-foreground">
                           총 금액: {populationStats.totalAmount.toLocaleString()}원
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          계산식: ({populationStats.size} × {riskFactor}) / {parseFloat(tolerableError).toLocaleString()}
                         </p>
                         <p className="text-sm font-semibold text-primary">
                           권장 샘플 크기: {calculatedSampleSize}개
