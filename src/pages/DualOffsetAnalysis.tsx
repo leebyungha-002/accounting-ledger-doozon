@@ -115,15 +115,35 @@ const DualOffsetAnalysis = () => {
       }
     });
 
-    // 양쪽에 모두 나타나는 거래처 찾기
-    const common: string[] = [];
+    // 양쪽에 모두 나타나는 거래처 찾기 및 금액 계산
+    const common: Array<{ client: string; debitAmount: number; creditAmount: number }> = [];
     debitClients.forEach(client => {
       if (creditClients.has(client)) {
-        common.push(client);
+        // 차변 계정에서의 금액 합계
+        let debitAmount = 0;
+        ledgerData.forEach(row => {
+          if (row['시트명'] === debitAccount && extractClient(row) === client) {
+            const debit = parseFloat(row['__EMPTY_3'] || 0);
+            const credit = parseFloat(row['__EMPTY_4'] || 0);
+            debitAmount += debit + credit;
+          }
+        });
+
+        // 대변 계정에서의 금액 합계
+        let creditAmount = 0;
+        ledgerData.forEach(row => {
+          if (row['시트명'] === creditAccount && extractClient(row) === client) {
+            const debit = parseFloat(row['__EMPTY_3'] || 0);
+            const credit = parseFloat(row['__EMPTY_4'] || 0);
+            creditAmount += debit + credit;
+          }
+        });
+
+        common.push({ client, debitAmount, creditAmount });
       }
     });
 
-    return common.sort();
+    return common.sort((a, b) => a.client.localeCompare(b.client));
   }, [ledgerData, debitAccount, creditAccount]);
 
   if (loading) {
@@ -260,7 +280,7 @@ const DualOffsetAnalysis = () => {
             <CardTitle>검색 결과</CardTitle>
             <CardDescription>
               {debitAccount && creditAccount
-                ? `"${debitAccount}"와(과) "${creditAccount}"에 모두 나타나는 거래처`
+                ? `차변: "${debitAccount}" / 대변: "${creditAccount}"`
                 : '차변과 대변 계정을 선택해주세요'}
             </CardDescription>
           </CardHeader>
@@ -272,13 +292,17 @@ const DualOffsetAnalysis = () => {
                     <TableRow>
                       <TableHead className="w-[60px]">번호</TableHead>
                       <TableHead>거래처명</TableHead>
+                      <TableHead className="text-right">{debitAccount} 합계</TableHead>
+                      <TableHead className="text-right">{creditAccount} 합계</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {dualClients.map((client, index) => (
+                    {dualClients.map((item, index) => (
                       <TableRow key={index}>
                         <TableCell>{index + 1}</TableCell>
-                        <TableCell className="font-medium">{client}</TableCell>
+                        <TableCell className="font-medium">{item.client}</TableCell>
+                        <TableCell className="text-right">{item.debitAmount.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{item.creditAmount.toLocaleString()}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
