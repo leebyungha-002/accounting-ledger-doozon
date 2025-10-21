@@ -67,8 +67,8 @@ const DualOffsetAnalysis = () => {
 
   // 거래처 정보 추출 - 개선
   const extractClient = (row: any): string | null => {
-    // 가능한 필드명들 확인
-    const possibleFields = ['거래처', '거래처명', '계   정   별   원   장', '__EMPTY_1', '__EMPTY_2'];
+    // 가능한 필드명들 확인 (__EMPTY_2가 거래처, __EMPTY_1은 적요)
+    const possibleFields = ['거래처', '거래처명', '__EMPTY_2', '계   정   별   원   장'];
     
     for (const field of possibleFields) {
       const value = row[field];
