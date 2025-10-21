@@ -201,6 +201,48 @@ const DualOffsetAnalysis = () => {
 
       <main className="container mx-auto px-4 py-8 space-y-8">
         {/* Frontier 디버깅 카드 */}
+        <Card className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+          <CardHeader>
+            <CardTitle className="text-blue-800 dark:text-blue-200">
+              매출 시트 검색 결과
+            </CardTitle>
+            <CardDescription>
+              제품매출, 상품매출이 포함된 시트명 검색
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 text-sm">
+              <div>
+                <strong>전체 시트명 목록:</strong>
+                <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {Array.from(new Set(ledgerData.map(row => row['시트명']))).filter(Boolean).map((sheetName: any, idx) => (
+                    <div key={idx} className="p-2 bg-white dark:bg-gray-900 rounded border">
+                      {sheetName}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-4">
+                <strong>매출 관련 시트:</strong>
+                <div className="mt-2">
+                  {Array.from(new Set(ledgerData.map(row => row['시트명'])))
+                    .filter((name: any) => name && (
+                      name.includes('매출') || 
+                      name.includes('제품') || 
+                      name.includes('상품') || 
+                      name.includes('용역')
+                    ))
+                    .map((sheetName: any, idx) => (
+                      <div key={idx} className="p-2 bg-green-100 dark:bg-green-900 rounded border mb-2">
+                        {sheetName}
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {frontierDebugData.length > 0 && (
           <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
             <CardHeader>
