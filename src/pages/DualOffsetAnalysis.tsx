@@ -115,6 +115,9 @@ const DualOffsetAnalysis = () => {
       }
     });
 
+    console.log('차변 계정 거래처:', Array.from(debitClients));
+    console.log('대변 계정 거래처:', Array.from(creditClients));
+
     // 양쪽에 모두 나타나는 거래처 찾기 및 금액 계산
     const common: Array<{ client: string; debitAmount: number; creditAmount: number }> = [];
     debitClients.forEach(client => {
@@ -125,7 +128,9 @@ const DualOffsetAnalysis = () => {
           if (row['시트명'] === debitAccount && extractClient(row) === client) {
             const debit = parseFloat(row['__EMPTY_3'] || 0);
             const credit = parseFloat(row['__EMPTY_4'] || 0);
-            debitAmount += debit + credit;
+            // 차변이나 대변 중 0이 아닌 값을 사용
+            const amount = debit !== 0 ? debit : credit;
+            debitAmount += Math.abs(amount);
           }
         });
 
@@ -135,10 +140,13 @@ const DualOffsetAnalysis = () => {
           if (row['시트명'] === creditAccount && extractClient(row) === client) {
             const debit = parseFloat(row['__EMPTY_3'] || 0);
             const credit = parseFloat(row['__EMPTY_4'] || 0);
-            creditAmount += debit + credit;
+            // 차변이나 대변 중 0이 아닌 값을 사용
+            const amount = debit !== 0 ? debit : credit;
+            creditAmount += Math.abs(amount);
           }
         });
 
+        console.log(`거래처: ${client}, 차변 금액: ${debitAmount}, 대변 금액: ${creditAmount}`);
         common.push({ client, debitAmount, creditAmount });
       }
     });
