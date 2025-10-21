@@ -12,8 +12,8 @@ serve(async (req) => {
   }
 
   try {
-    const { ledgerData, analysisType } = await req.json();
-    console.log('Analyzing ledger data, type:', analysisType);
+    const { ledgerData, analysisType, accountName } = await req.json();
+    console.log('Analyzing ledger data, type:', analysisType, 'account:', accountName);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -26,22 +26,24 @@ serve(async (req) => {
     let systemPrompt = '';
     let userPrompt = '';
 
+    const accountPrefix = accountName ? `[${accountName}] ` : '';
+    
     switch (analysisType) {
       case 'trend':
         systemPrompt = '당신은 회계 전문가입니다. 계정별원장 데이터를 분석하여 주요 추세와 패턴을 찾아주세요.';
-        userPrompt = `다음 계정별원장 데이터를 분석하여 주요 추세를 설명해주세요:\n\n${dataSummary}\n\n다음 형식으로 답변해주세요:\n1. 주요 발견사항 (3-5개)\n2. 추세 분석\n3. 주의사항`;
+        userPrompt = `${accountPrefix}다음 계정별원장 데이터를 분석하여 주요 추세를 설명해주세요:\n\n${dataSummary}\n\n다음 형식으로 답변해주세요:\n1. 주요 발견사항 (3-5개)\n2. 추세 분석\n3. 주의사항`;
         break;
       case 'anomaly':
         systemPrompt = '당신은 회계 감사 전문가입니다. 계정별원장에서 이상 거래나 비정상적인 패턴을 찾아주세요.';
-        userPrompt = `다음 계정별원장 데이터에서 이상 거래나 비정상적인 패턴을 찾아주세요:\n\n${dataSummary}\n\n다음 항목을 확인해주세요:\n1. 비정상적으로 큰 금액의 거래\n2. 불균형한 차변/대변\n3. 의심스러운 거래 패턴\n4. 권장사항`;
+        userPrompt = `${accountPrefix}다음 계정별원장 데이터에서 이상 거래나 비정상적인 패턴을 찾아주세요:\n\n${dataSummary}\n\n다음 항목을 확인해주세요:\n1. 비정상적으로 큰 금액의 거래\n2. 불균형한 차변/대변\n3. 의심스러운 거래 패턴\n4. 권장사항`;
         break;
       case 'balance':
         systemPrompt = '당신은 회계 전문가입니다. 계정별원장의 차변과 대변의 균형을 확인해주세요.';
-        userPrompt = `다음 계정별원장 데이터의 차변/대변 균형을 분석해주세요:\n\n${dataSummary}\n\n다음 정보를 제공해주세요:\n1. 전체 차변 합계\n2. 전체 대변 합계\n3. 차이 분석\n4. 균형 상태 평가`;
+        userPrompt = `${accountPrefix}다음 계정별원장 데이터의 차변/대변 균형을 분석해주세요:\n\n${dataSummary}\n\n다음 정보를 제공해주세요:\n1. 전체 차변 합계\n2. 전체 대변 합계\n3. 차이 분석\n4. 균형 상태 평가`;
         break;
       default:
         systemPrompt = '당신은 회계 전문가입니다. 계정별원장 데이터에 대한 전반적인 재무 인사이트를 제공해주세요.';
-        userPrompt = `다음 계정별원장 데이터를 분석하여 전반적인 재무 인사이트를 제공해주세요:\n\n${dataSummary}\n\n다음 내용을 포함해주세요:\n1. 전체 요약\n2. 주요 발견사항\n3. 개선 제안\n4. 주의사항`;
+        userPrompt = `${accountPrefix}다음 계정별원장 데이터를 분석하여 전반적인 재무 인사이트를 제공해주세요:\n\n${dataSummary}\n\n다음 내용을 포함해주세요:\n1. 전체 요약\n2. 주요 발견사항\n3. 개선 제안\n4. 주의사항`;
     }
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
