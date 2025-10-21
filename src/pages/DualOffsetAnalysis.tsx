@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Search } from 'lucide-react';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ArrowLeft, Search, Check, ChevronsUpDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 const DualOffsetAnalysis = () => {
   const navigate = useNavigate();
@@ -15,6 +17,8 @@ const DualOffsetAnalysis = () => {
   const [loading, setLoading] = useState(true);
   const [debitAccount, setDebitAccount] = useState<string>('');
   const [creditAccount, setCreditAccount] = useState<string>('');
+  const [openDebit, setOpenDebit] = useState(false);
+  const [openCredit, setOpenCredit] = useState(false);
 
   useEffect(() => {
     loadLatestLedger();
@@ -154,34 +158,92 @@ const DualOffsetAnalysis = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">차변 계정</label>
-                <Select value={debitAccount} onValueChange={setDebitAccount}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="차변 계정을 선택하세요" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allAccounts.map((account) => (
-                      <SelectItem key={account} value={account}>
-                        {account}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={openDebit} onOpenChange={setOpenDebit}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={openDebit}
+                      className="w-full justify-between"
+                    >
+                      {debitAccount || "차변 계정을 선택하세요"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0">
+                    <Command>
+                      <CommandInput placeholder="계정 검색..." />
+                      <CommandList>
+                        <CommandEmpty>계정을 찾을 수 없습니다.</CommandEmpty>
+                        <CommandGroup>
+                          {allAccounts.map((account) => (
+                            <CommandItem
+                              key={account}
+                              value={account}
+                              onSelect={(currentValue) => {
+                                setDebitAccount(currentValue === debitAccount ? "" : account);
+                                setOpenDebit(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  debitAccount === account ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              {account}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">대변 계정</label>
-                <Select value={creditAccount} onValueChange={setCreditAccount}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="대변 계정을 선택하세요" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allAccounts.map((account) => (
-                      <SelectItem key={account} value={account}>
-                        {account}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={openCredit} onOpenChange={setOpenCredit}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={openCredit}
+                      className="w-full justify-between"
+                    >
+                      {creditAccount || "대변 계정을 선택하세요"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0">
+                    <Command>
+                      <CommandInput placeholder="계정 검색..." />
+                      <CommandList>
+                        <CommandEmpty>계정을 찾을 수 없습니다.</CommandEmpty>
+                        <CommandGroup>
+                          {allAccounts.map((account) => (
+                            <CommandItem
+                              key={account}
+                              value={account}
+                              onSelect={(currentValue) => {
+                                setCreditAccount(currentValue === creditAccount ? "" : account);
+                                setOpenCredit(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  creditAccount === account ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              {account}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </CardContent>
