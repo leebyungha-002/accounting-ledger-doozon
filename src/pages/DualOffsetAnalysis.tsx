@@ -205,35 +205,37 @@ const DualOffsetAnalysis = () => {
           <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
             <CardHeader>
               <CardTitle className="text-yellow-800 dark:text-yellow-200">
-                Frontier 거래처 디버깅 정보
+                Frontier 거래처 전체 데이터
               </CardTitle>
               <CardDescription>
-                Frontier가 포함된 모든 행과 매출/비용 판단 결과
+                Frontier가 포함된 모든 행의 전체 필드
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>행번호</TableHead>
-                    <TableHead>거래처</TableHead>
-                    <TableHead>시트명</TableHead>
-                    <TableHead>매출계정?</TableHead>
-                    <TableHead>비용계정?</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {frontierDebugData.map((item: any, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell>{item.행번호}</TableCell>
-                      <TableCell>{item.거래처}</TableCell>
-                      <TableCell>{item.시트명}</TableCell>
-                      <TableCell>{item.매출여부}</TableCell>
-                      <TableCell>{item.비용여부}</TableCell>
-                    </TableRow>
+              <div className="space-y-4">
+                {ledgerData
+                  .map((row, idx) => {
+                    const client = extractClient(row);
+                    if (!client || !client.toLowerCase().includes('frontier')) return null;
+                    return { row, idx, client };
+                  })
+                  .filter(Boolean)
+                  .map((item: any, cardIdx) => (
+                    <Card key={cardIdx} className="p-4 bg-white dark:bg-gray-900">
+                      <div className="text-sm font-semibold mb-2">
+                        행 #{item.idx} - 거래처: {item.client}
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 text-sm">
+                        {Object.entries(item.row).map(([key, value]) => (
+                          <div key={key} className="flex gap-2 border-b pb-1">
+                            <span className="font-medium text-muted-foreground min-w-[120px]">{key}:</span>
+                            <span className="break-all">{String(value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
                   ))}
-                </TableBody>
-              </Table>
+              </div>
             </CardContent>
           </Card>
         )}
