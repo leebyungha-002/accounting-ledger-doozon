@@ -102,7 +102,18 @@ const DualOffsetAnalysis = () => {
     ledgerData.forEach(row => {
       if (row['시트명'] === debitAccount) {
         const client = extractClient(row);
-        if (client) debitClients.add(client);
+        if (client) {
+          debitClients.add(client);
+          // 첫 3개 행만 로그 출력
+          if (debitClients.size <= 3) {
+            console.log(`차변 계정(${debitAccount}) 행:`, {
+              거래처: client,
+              차변: row['__EMPTY_3'],
+              대변: row['__EMPTY_4'],
+              전체행: row
+            });
+          }
+        }
       }
     });
 
@@ -111,7 +122,18 @@ const DualOffsetAnalysis = () => {
     ledgerData.forEach(row => {
       if (row['시트명'] === creditAccount) {
         const client = extractClient(row);
-        if (client) creditClients.add(client);
+        if (client) {
+          creditClients.add(client);
+          // 첫 3개 행만 로그 출력
+          if (creditClients.size <= 3) {
+            console.log(`대변 계정(${creditAccount}) 행:`, {
+              거래처: client,
+              차변: row['__EMPTY_3'],
+              대변: row['__EMPTY_4'],
+              전체행: row
+            });
+          }
+        }
       }
     });
 
@@ -124,29 +146,59 @@ const DualOffsetAnalysis = () => {
       if (creditClients.has(client)) {
         // 차변 계정에서의 금액 합계
         let debitAmount = 0;
+        let debitCount = 0;
         ledgerData.forEach(row => {
           if (row['시트명'] === debitAccount && extractClient(row) === client) {
-            const debit = parseFloat(row['__EMPTY_3'] || 0);
-            const credit = parseFloat(row['__EMPTY_4'] || 0);
-            // 차변이나 대변 중 0이 아닌 값을 사용
-            const amount = debit !== 0 ? debit : credit;
-            debitAmount += Math.abs(amount);
+            const debit = row['__EMPTY_3'];
+            const credit = row['__EMPTY_4'];
+            
+            // 숫자로 변환 가능한지 확인
+            const debitNum = typeof debit === 'number' ? debit : (debit ? parseFloat(String(debit).replace(/,/g, '')) : 0);
+            const creditNum = typeof credit === 'number' ? credit : (credit ? parseFloat(String(credit).replace(/,/g, '')) : 0);
+            
+            if (!isNaN(debitNum) && debitNum !== 0) {
+              debitAmount += Math.abs(debitNum);
+              debitCount++;
+            }
+            if (!isNaN(creditNum) && creditNum !== 0) {
+              debitAmount += Math.abs(creditNum);
+              debitCount++;
+            }
           }
         });
 
         // 대변 계정에서의 금액 합계
         let creditAmount = 0;
+        let creditCount = 0;
         ledgerData.forEach(row => {
           if (row['시트명'] === creditAccount && extractClient(row) === client) {
-            const debit = parseFloat(row['__EMPTY_3'] || 0);
-            const credit = parseFloat(row['__EMPTY_4'] || 0);
-            // 차변이나 대변 중 0이 아닌 값을 사용
-            const amount = debit !== 0 ? debit : credit;
-            creditAmount += Math.abs(amount);
+            const debit = row['__EMPTY_3'];
+            const credit = row['__EMPTY_4'];
+            
+            // 숫자로 변환 가능한지 확인
+            const debitNum = typeof debit === 'number' ? debit : (debit ? parseFloat(String(debit).replace(/,/g, '')) : 0);
+            const creditNum = typeof credit === 'number' ? credit : (credit ? parseFloat(String(credit).replace(/,/g, '')) : 0);
+            
+            if (!isNaN(debitNum) && debitNum !== 0) {
+              creditAmount += Math.abs(debitNum);
+              creditCount++;
+            }
+            if (!isNaN(creditNum) && creditNum !== 0) {
+              creditAmount += Math.abs(creditNum);
+              creditCount++;
+            }
           }
         });
 
-        console.log(`거래처: ${client}, 차변 금액: ${debitAmount}, 대변 금액: ${creditAmount}`);
+        console.log(`거래처: ${client}`, {
+          차변계정: debitAccount,
+          차변금액: debitAmount,
+          차변건수: debitCount,
+          대변계정: creditAccount,
+          대변금액: creditAmount,
+          대변건수: creditCount
+        });
+        
         common.push({ client, debitAmount, creditAmount });
       }
     });
