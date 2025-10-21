@@ -64,21 +64,22 @@ const DualOffsetAnalysis = () => {
     }
   };
 
-  // 거래처 정보 추출
+  // 거래처 정보 추출 - 단순화
   const extractClient = (row: any): string | null => {
-    // 실제 데이터 필드명에 맞춰 수정
-    const clientFields = ['계   정   별   원   장', '__EMPTY_1', '거래처', '거래처명', '거래처코드', '적요'];
-    for (const field of clientFields) {
+    // 가능한 필드명들 확인
+    const possibleFields = ['계   정   별   원   장', '__EMPTY_1', '__EMPTY_2', '거래처', '거래처명'];
+    
+    for (const field of possibleFields) {
       const value = row[field];
-      if (value && String(value).trim()) {
+      if (value) {
         const strValue = String(value).trim();
-        // 헤더나 기타 정보가 아닌 실제 거래처명만 추출
-        if (strValue !== '' &&
+        // 헤더가 아니고, 실제 값이 있으면 반환
+        if (strValue && 
+            strValue.length > 0 &&
             !strValue.includes('원   장') && 
-            !strValue.includes('적    요    란') &&
-            strValue !== '거래처' &&
-            !strValue.includes('2025.') &&
-            strValue !== '날짜') {
+            !strValue.includes('적    요') &&
+            !strValue.includes('날짜') &&
+            strValue !== '거래처') {
           return strValue;
         }
       }
@@ -102,58 +103,99 @@ const DualOffsetAnalysis = () => {
   const dualClients = useMemo(() => {
     if (!debitAccount || !creditAccount) return [];
 
+    console.log('=== 분석 시작 ===');
+    console.log('차변 계정:', debitAccount);
+    console.log('대변 계정:', creditAccount);
+    console.log('전체 데이터 행 수:', ledgerData.length);
+
+    // 선택한 계정의 데이터만 먼저 출력 (처음 5개)
+    const debitRows = ledgerData.filter(row => row['시트명'] === debitAccount).slice(0, 5);
+    const creditRows = ledgerData.filter(row => row['시트명'] === creditAccount).slice(0, 5);
+    
+    console.log('차변 계정 샘플 데이터:', debitRows);
+    console.log('대변 계정 샘플 데이터:', creditRows);
+
     // 각 계정별로 거래처-금액 맵 생성
     const debitMap = new Map<string, number>();
     const creditMap = new Map<string, number>();
 
-    ledgerData.forEach(row => {
+    ledgerData.forEach((row, index) => {
       const sheetName = row['시트명'];
+      if (sheetName !== debitAccount && sheetName !== creditAccount) return;
+
       const client = extractClient(row);
       
+      // 처음 몇 개만 자세히 로깅
+      if (index < 20 && (sheetName === debitAccount || sheetName === creditAccount)) {
+        console.log(`행 ${index}:`, {
+          시트명: sheetName,
+          추출된거래처: client,
+          원본데이터: {
+            계정별원장: row['계   정   별   원   장'],
+            EMPTY_1: row['__EMPTY_1'],
+            EMPTY_2: row['__EMPTY_2'],
+            EMPTY_3: row['__EMPTY_3'],
+            EMPTY_4: row['__EMPTY_4']
+          }
+        });
+      }
+
       if (!client) return;
 
-      const debit = row['__EMPTY_3'];
-      const credit = row['__EMPTY_4'];
+      // 금액 필드
+      const debitValue = row['__EMPTY_3'];
+      const creditValue = row['__EMPTY_4'];
       
       // 숫자로 변환
-      const debitNum = typeof debit === 'number' ? debit : (debit ? parseFloat(String(debit).replace(/,/g, '')) : 0);
-      const creditNum = typeof credit === 'number' ? credit : (credit ? parseFloat(String(credit).replace(/,/g, '')) : 0);
+      let debitNum = 0;
+      let creditNum = 0;
       
-      // 차변 계정 처리
+      if (debitValue) {
+        const str = String(debitValue).replace(/,/g, '');
+        debitNum = parseFloat(str);
+      }
+      
+      if (creditValue) {
+        const str = String(creditValue).replace(/,/g, '');
+        creditNum = parseFloat(str);
+      }
+      
+      // 차변 계정: 차변금액 우선, 없으면 대변금액
       if (sheetName === debitAccount) {
-        const currentAmount = debitMap.get(client) || 0;
-        const amount = (!isNaN(debitNum) && debitNum !== 0) ? Math.abs(debitNum) : 
-                      (!isNaN(creditNum) && creditNum !== 0) ? Math.abs(creditNum) : 0;
+        const amount = !isNaN(debitNum) && debitNum > 0 ? debitNum : 
+                      !isNaN(creditNum) && creditNum > 0 ? creditNum : 0;
         if (amount > 0) {
-          debitMap.set(client, currentAmount + amount);
+          debitMap.set(client, (debitMap.get(client) || 0) + amount);
         }
       }
       
-      // 대변 계정 처리
+      // 대변 계정: 대변금액 우선, 없으면 차변금액
       if (sheetName === creditAccount) {
-        const currentAmount = creditMap.get(client) || 0;
-        const amount = (!isNaN(debitNum) && debitNum !== 0) ? Math.abs(debitNum) : 
-                      (!isNaN(creditNum) && creditNum !== 0) ? Math.abs(creditNum) : 0;
+        const amount = !isNaN(creditNum) && creditNum > 0 ? creditNum : 
+                      !isNaN(debitNum) && debitNum > 0 ? debitNum : 0;
         if (amount > 0) {
-          creditMap.set(client, currentAmount + amount);
+          creditMap.set(client, (creditMap.get(client) || 0) + amount);
         }
       }
     });
 
-    console.log('차변 계정 맵:', Object.fromEntries(debitMap));
-    console.log('대변 계정 맵:', Object.fromEntries(creditMap));
+    console.log('차변 거래처 맵:', Object.fromEntries(debitMap));
+    console.log('대변 거래처 맵:', Object.fromEntries(creditMap));
 
-    // 양쪽에 모두 나타나는 거래처 찾기
+    // 공통 거래처 찾기
     const common: Array<{ client: string; debitAmount: number; creditAmount: number }> = [];
     
     debitMap.forEach((debitAmount, client) => {
       if (creditMap.has(client)) {
-        const creditAmount = creditMap.get(client) || 0;
-        common.push({ client, debitAmount, creditAmount });
+        common.push({ 
+          client, 
+          debitAmount, 
+          creditAmount: creditMap.get(client) || 0 
+        });
       }
     });
 
-    console.log('공통 거래처:', common);
+    console.log('공통 거래처 목록:', common);
     return common.sort((a, b) => a.client.localeCompare(b.client));
   }, [ledgerData, debitAccount, creditAccount]);
 
