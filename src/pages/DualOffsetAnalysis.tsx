@@ -71,7 +71,7 @@ const DualOffsetAnalysis = () => {
   // 매출/비용 이중 거래처 분석
   const salesExpenseDualClients = useMemo(() => {
     const salesAccounts = ['매출', '제품매출', '상품매출', '용역매출'];
-    const expenseAccounts = ['판매비', '관리비', '판매비와관리비', '급여', '복리후생비', '접대비', '통신비'];
+    const expenseAccounts = ['판매비', '관리비', '판매비와관리비', '급여', '복리후생비', '접대비', '통신비', '지급수수료', '광고선전비', '광고비', '운반비', '수선비', '소모품비', '도서인쇄비', '차량유지비', '여비교통비', '세금과공과', '감가상각비', '보험료', '임차료', '수도광열비'];
 
     const clientsByAccount = new Map<string, Set<string>>();
 
