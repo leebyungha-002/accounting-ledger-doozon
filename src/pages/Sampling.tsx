@@ -254,13 +254,30 @@ const Sampling = () => {
     }
 
     const wb = XLSX.utils.book_new();
-    const wsData = [
+    const headerData: any[][] = [
       ['샘플링 결과'],
       ['계정명', selectedSamplingAccount],
       ['샘플링 방법', samplingMethod === 'random' ? '무작위' : samplingMethod === 'systematic' ? '체계적' : '금액가중'],
-      ['샘플 크기', sampledData.length],
-      ['추출 일시', new Date().toLocaleString('ko-KR')],
-      [],
+    ];
+
+    // 공식 계산인 경우 추가 정보
+    if (sampleSizeMethod === 'formula') {
+      const selectedRiskFactorInfo = riskFactorTable.find(item => item.factor === riskFactor);
+      headerData.push(['샘플 크기 결정', '공식 계산']);
+      if (riskFactorMethod === 'table' && selectedRiskFactorInfo) {
+        headerData.push(['신뢰수준', `${selectedRiskFactorInfo.confidenceLevel} (감사위험 ${selectedRiskFactorInfo.auditRisk})`]);
+      }
+      headerData.push(['위험계수', riskFactor]);
+      headerData.push(['허용가능 오류금액', `${parseFloat(tolerableError).toLocaleString()}원`]);
+      headerData.push(['모집단 총금액', `${populationStats.totalAmount.toLocaleString()}원`]);
+    }
+
+    headerData.push(['샘플 크기', sampledData.length]);
+    headerData.push(['추출 일시', new Date().toLocaleString('ko-KR')]);
+    headerData.push([]);
+    
+    const wsData = [
+      ...headerData,
       ['날짜', '적요', '거래처', '차변', '대변', '잔액'],
       ...sampledData.map(row => [
         row['__EMPTY'] || '',
