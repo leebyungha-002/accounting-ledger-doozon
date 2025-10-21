@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import DualOffsetAnalysis from "./pages/DualOffsetAnalysis";
 import MonthlyPLAnalysis from "./pages/MonthlyPLAnalysis";
+import Sampling from "./pages/Sampling";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -20,6 +21,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/dual-offset-analysis" element={<DualOffsetAnalysis />} />
           <Route path="/monthly-pl-analysis" element={<MonthlyPLAnalysis />} />
+          <Route path="/sampling" element={<Sampling />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

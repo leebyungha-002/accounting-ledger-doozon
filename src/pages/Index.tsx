@@ -6,7 +6,7 @@ import { AnalysisPanel } from '@/components/AnalysisPanel';
 import { AuthForm } from '@/components/AuthForm';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, FileSpreadsheet, AlertTriangle } from 'lucide-react';
+import { LogOut, FileSpreadsheet, AlertTriangle, FlaskConical } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -155,11 +155,11 @@ const Index = () => {
               </CardContent>
             </Card>
 
-            <div className="flex gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Button 
                 onClick={() => navigate('/dual-offset-analysis')} 
                 variant="outline"
-                className="flex-1"
+                className="w-full"
               >
                 <AlertTriangle className="mr-2 h-4 w-4" />
                 이중/상계 거래처 분석
@@ -167,10 +167,18 @@ const Index = () => {
               <Button 
                 onClick={() => navigate('/monthly-pl-analysis')} 
                 variant="outline"
-                className="flex-1"
+                className="w-full"
               >
                 <FileSpreadsheet className="mr-2 h-4 w-4" />
                 월별 손익분석
+              </Button>
+              <Button 
+                onClick={() => navigate('/sampling')} 
+                variant="outline"
+                className="w-full"
+              >
+                <FlaskConical className="mr-2 h-4 w-4" />
+                샘플링
               </Button>
             </div>
 
