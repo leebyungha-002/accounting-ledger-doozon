@@ -17,6 +17,7 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
   const [loading, setLoading] = useState<string | null>(null);
   const [analyses, setAnalyses] = useState<Record<string, string>>({});
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState<string>('trend');
   const { toast } = useToast();
 
   // 계정 목록 추출
@@ -103,13 +104,36 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
     { id: 'insight', name: '재무 인사이트', icon: Sparkles, description: '전반적인 재무 분석' },
   ];
 
+  const currentAnalysisType = analysisTypes.find(t => t.id === activeTab);
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>AI 분석</CardTitle>
-        <CardDescription>
-          계정별원장 데이터를 AI로 분석하여 인사이트를 얻으세요
-        </CardDescription>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <CardTitle>AI 분석</CardTitle>
+            <CardDescription>
+              계정별원장 데이터를 AI로 분석하여 인사이트를 얻으세요
+            </CardDescription>
+          </div>
+          <Button
+            onClick={() => runAnalysis(activeTab)}
+            disabled={loading === activeTab}
+            size="lg"
+          >
+            {loading === activeTab ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                분석 중...
+              </>
+            ) : (
+              <>
+                {currentAnalysisType && <currentAnalysisType.icon className="mr-2 h-4 w-4" />}
+                분석 시작
+              </>
+            )}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="mb-6">
@@ -132,7 +156,7 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
             ({filteredData.length}개 항목)
           </p>
         </div>
-        <Tabs defaultValue="trend" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-4">
             {analysisTypes.map((type) => (
               <TabsTrigger key={type.id} value={type.id}>
@@ -144,25 +168,7 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
 
           {analysisTypes.map((type) => (
             <TabsContent key={type.id} value={type.id} className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">{type.description}</p>
-                <Button
-                  onClick={() => runAnalysis(type.id)}
-                  disabled={loading === type.id}
-                >
-                  {loading === type.id ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      분석 중...
-                    </>
-                  ) : (
-                    <>
-                      <type.icon className="mr-2 h-4 w-4" />
-                      분석 시작
-                    </>
-                  )}
-                </Button>
-              </div>
+              <p className="text-sm text-muted-foreground">{type.description}</p>
 
               {analyses[`${selectedAccount}-${type.id}`] && (
                 <div className="mt-4 p-4 bg-muted rounded-lg">
