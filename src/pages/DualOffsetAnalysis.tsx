@@ -66,27 +66,21 @@ const DualOffsetAnalysis = () => {
 
   // 거래처 정보 추출
   const extractClient = (row: any): string | null => {
-    // 날짜 필드가 있는 실제 거래 행만 처리
-    const dateField = row['__EMPTY'];
-    if (!dateField) return null;
-    
-    // 명확한 헤더 텍스트 제외
-    if (typeof dateField === 'string' && 
-        (dateField.includes('2025.') || dateField === '날짜' || dateField === '')) {
-      return null;
-    }
-    
     // 실제 데이터 필드명에 맞춰 수정
-    const clientFields = ['계   정   별   원   장', '거래처', '거래처명', '거래처코드', '__EMPTY_1', '적요'];
+    const clientFields = ['계   정   별   원   장', '__EMPTY_1', '거래처', '거래처명', '거래처코드', '적요'];
     for (const field of clientFields) {
       const value = row[field];
-      if (value && String(value).trim() && 
-          // 헤더나 기타 정보가 아닌 실제 거래처명만 추출
-          !String(value).includes('원   장') && 
-          !String(value).includes('적    요    란') &&
-          String(value) !== '거래처' &&
-          String(value).trim() !== '') {
-        return String(value).trim();
+      if (value && String(value).trim()) {
+        const strValue = String(value).trim();
+        // 헤더나 기타 정보가 아닌 실제 거래처명만 추출
+        if (strValue !== '' &&
+            !strValue.includes('원   장') && 
+            !strValue.includes('적    요    란') &&
+            strValue !== '거래처' &&
+            !strValue.includes('2025.') &&
+            strValue !== '날짜') {
+          return strValue;
+        }
       }
     }
     return null;
