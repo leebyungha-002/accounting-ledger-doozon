@@ -88,6 +88,25 @@ const Sampling = () => {
     }
   };
 
+  // 계정 유형 판별 함수
+  const getAccountType = (accountName: string): 'debit' | 'credit' => {
+    const debitKeywords = ['자산', '비용', '매출원가', '판매비', '관리비', '영업외비용'];
+    const creditKeywords = ['부채', '자본', '매출', '수익', '영업외수익'];
+    
+    // 차변 계정 확인
+    if (debitKeywords.some(keyword => accountName.includes(keyword))) {
+      return 'debit';
+    }
+    
+    // 대변 계정 확인
+    if (creditKeywords.some(keyword => accountName.includes(keyword))) {
+      return 'credit';
+    }
+    
+    // 기본값: 차변 (자산/비용)
+    return 'debit';
+  };
+
   // Get all unique accounts for sampling
   const allAccounts = useMemo(() => {
     const accounts = new Set<string>();
@@ -110,10 +129,14 @@ const Sampling = () => {
       return sheetName === selectedSamplingAccount && dateStr && typeof dateStr === 'string' && dateStr.trim() !== '';
     });
 
+    const accountType = getAccountType(selectedSamplingAccount);
+    
     const totalAmount = accountData.reduce((sum, row) => {
       const debit = parseFloat(row['__EMPTY_3']) || 0;
       const credit = parseFloat(row['__EMPTY_4']) || 0;
-      return sum + debit + credit;
+      // 계정 유형에 따라 금액 합산
+      const amount = accountType === 'debit' ? Math.abs(debit) : Math.abs(credit);
+      return sum + amount;
     }, 0);
 
     return { size: accountData.length, totalAmount };
@@ -156,6 +179,8 @@ const Sampling = () => {
       });
       return;
     }
+
+    const accountType = getAccountType(selectedSamplingAccount);
 
     let size: number;
     
@@ -211,11 +236,19 @@ const Sampling = () => {
         samples.push(accountData[i]);
       }
     } else if (samplingMethod === 'monetary') {
-      // Monetary Unit Sampling (MUS) - weighted by amount
-      const dataWithAmounts = accountData.map(row => ({
-        ...row,
-        amount: Math.abs(parseFloat(row['__EMPTY_3'] || 0)) + Math.abs(parseFloat(row['__EMPTY_4'] || 0))
-      })).filter(row => row.amount > 0);
+      // Monetary Unit Sampling (MUS) - weighted by amount based on account type
+      const dataWithAmounts = accountData.map(row => {
+        const debitAmount = Math.abs(parseFloat(row['__EMPTY_3']) || 0);
+        const creditAmount = Math.abs(parseFloat(row['__EMPTY_4']) || 0);
+        
+        // 계정 유형에 따라 샘플링 기준 금액 결정
+        const amount = accountType === 'debit' ? debitAmount : creditAmount;
+        
+        return {
+          ...row,
+          amount
+        };
+      }).filter(row => row.amount > 0);
 
       // Sort by amount descending
       dataWithAmounts.sort((a, b) => b.amount - a.amount);
