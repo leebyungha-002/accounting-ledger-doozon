@@ -6,7 +6,7 @@ import { AnalysisPanel } from '@/components/AnalysisPanel';
 import { AuthForm } from '@/components/AuthForm';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, FileSpreadsheet, AlertTriangle, FlaskConical } from 'lucide-react';
+import { LogOut, FileSpreadsheet, AlertTriangle, FlaskConical, Sparkles } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -152,6 +152,22 @@ const Index = () => {
               </CardHeader>
               <CardContent>
                 <LedgerDataTable data={ledgerData} />
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+              <CardContent className="pt-6">
+                <Button 
+                  onClick={() => navigate('/advanced-analysis')} 
+                  size="lg"
+                  className="w-full"
+                >
+                  <Sparkles className="mr-2 h-5 w-5" />
+                  고급 분석 (10가지 기능 통합)
+                </Button>
+                <p className="text-sm text-muted-foreground text-center mt-4">
+                  계정별원장 AI 분석, 총계정원장, 이중거래처, 손익분석, 월별추이, 전기비교, 거래검색, 샘플링, 금감원 위험분석, 벤포드 법칙
+                </p>
               </CardContent>
             </Card>
 

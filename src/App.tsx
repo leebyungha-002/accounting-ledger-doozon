@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import DualOffsetAnalysis from "./pages/DualOffsetAnalysis";
 import MonthlyPLAnalysis from "./pages/MonthlyPLAnalysis";
 import Sampling from "./pages/Sampling";
+import AdvancedLedgerAnalysis from "./pages/AdvancedLedgerAnalysis";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -19,6 +20,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/advanced-analysis" element={<AdvancedLedgerAnalysis />} />
           <Route path="/dual-offset-analysis" element={<DualOffsetAnalysis />} />
           <Route path="/monthly-pl-analysis" element={<MonthlyPLAnalysis />} />
           <Route path="/sampling" element={<Sampling />} />

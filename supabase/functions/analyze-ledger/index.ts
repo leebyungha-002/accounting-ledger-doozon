@@ -12,12 +12,128 @@ serve(async (req) => {
   }
 
   try {
-    const { ledgerData, analysisType, accountName } = await req.json();
+    const { ledgerData, analysisType, accountName, question, benfordResults, totalCount } = await req.json();
     console.log('Analyzing ledger data, type:', analysisType, 'account:', accountName);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
       throw new Error('LOVABLE_API_KEY is not configured');
+    }
+
+    // Handle Benford Analysis
+    if (analysisType === 'benford') {
+      const prompt = `
+당신은 숙련된 회계 감사인입니다. 벤포드 법칙(Benford's Law)을 사용하여 데이터의 이상 징후를 분석하고 있습니다.
+
+아래는 '${accountName}' 계정의 벤포드 법칙 분석 결과입니다:
+
+- 총 유효 데이터 수: ${totalCount}
+- 분석 결과:
+${JSON.stringify(benfordResults, null, 2)}
+
+## 분석 요청
+1. 위 분석 결과를 해석해주세요.
+2. 실제 분포가 벤포드 법칙의 이론적 분포와 유의미한 차이를 보이는 숫자가 있는지 식별해주세요.
+3. 만약 유의미한 차이가 있다면, 회계적으로 어떤 의미를 가질 수 있는지 설명해주세요.
+4. 추가적으로 어떤 검토 절차가 필요할지 구체적인 감사 절차를 제안해주세요.
+5. 최종적인 전문가 의견을 요약해주세요.
+      `;
+
+      const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          return new Response(
+            JSON.stringify({ error: '요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.' }),
+            { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        if (response.status === 402) {
+          return new Response(
+            JSON.stringify({ error: '크레딧이 부족합니다. 크레딧을 추가해주세요.' }),
+            { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        throw new Error(`AI gateway error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const analysisResult = data.choices[0].message.content;
+
+      return new Response(
+        JSON.stringify({ analysis: analysisResult }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Handle Account Analysis
+    if (analysisType === 'account') {
+      const dataForPrompt = JSON.stringify(ledgerData, null, 2);
+      const prompt = `
+당신은 전문 회계 분석가 AI입니다. 제공된 회계 장부 데이터를 바탕으로 사용자의 질문에 대해 전문적이고 이해하기 쉽게 분석해주세요.
+
+## 분석 대상 계정
+- 계정과목명: ${accountName}
+
+## ${accountName} 관련 데이터 (샘플)
+${dataForPrompt}
+
+## 사용자 질문
+"${question || '이 계정의 거래 내역을 요약하고, 특이사항이 있다면 알려주세요.'}"
+
+## 분석 결과
+위 데이터를 바탕으로 사용자 질문에 대한 분석 결과를 한국어로 작성해주세요. 결과를 명확하고 구조화된 형태로 제공해주세요.
+      `;
+
+      const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          return new Response(
+            JSON.stringify({ error: '요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.' }),
+            { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        if (response.status === 402) {
+          return new Response(
+            JSON.stringify({ error: '크레딧이 부족합니다. 크레딧을 추가해주세요.' }),
+            { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        throw new Error(`AI gateway error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const analysisResult = data.choices[0].message.content;
+
+      return new Response(
+        JSON.stringify({ analysis: analysisResult }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // 합계 행 제외 패턴
