@@ -3,10 +3,6 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import DualOffsetAnalysis from "./pages/DualOffsetAnalysis";
-import MonthlyPLAnalysis from "./pages/MonthlyPLAnalysis";
-import Sampling from "./pages/Sampling";
 import AdvancedLedgerAnalysis from "./pages/AdvancedLedgerAnalysis";
 import NotFound from "./pages/NotFound";
 
@@ -19,11 +15,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/advanced-analysis" element={<AdvancedLedgerAnalysis />} />
-          <Route path="/dual-offset-analysis" element={<DualOffsetAnalysis />} />
-          <Route path="/monthly-pl-analysis" element={<MonthlyPLAnalysis />} />
-          <Route path="/sampling" element={<Sampling />} />
+          <Route path="/" element={<AdvancedLedgerAnalysis />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
