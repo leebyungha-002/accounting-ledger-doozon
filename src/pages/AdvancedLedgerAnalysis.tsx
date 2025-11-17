@@ -787,7 +787,7 @@ const AdvancedLedgerAnalysis = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        {!workbook ? renderUploadScreen() : currentView === 'selection' ? renderSelectionScreen() : renderAnalysisView()}
+        {!workbook || showPreviousDialog || showPreviousUpload ? renderUploadScreen() : currentView === 'selection' ? renderSelectionScreen() : renderAnalysisView()}
       </main>
 
       {/* 전기 업로드 여부 확인 Dialog - 전역으로 이동 */}
