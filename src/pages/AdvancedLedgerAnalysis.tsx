@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { BenfordAnalysis } from '@/components/BenfordAnalysis';
 import {
-  ArrowLeft,
+  LogOut,
   FileSpreadsheet,
   Upload,
   Search,
@@ -162,6 +162,15 @@ const cleanAmount = (val: any) => typeof val === 'string' ? parseFloat(val.repla
 const AdvancedLedgerAnalysis = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    toast({
+      title: '로그아웃',
+      description: '로그아웃되었습니다.',
+    });
+    navigate('/');
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -691,16 +700,13 @@ const AdvancedLedgerAnalysis = () => {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={() => navigate('/')}>
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                메인으로
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
               <FileSpreadsheet className="h-6 w-6 text-primary" />
-              <h1 className="text-2xl font-bold">고급 원장 분석</h1>
+              <h1 className="text-2xl font-bold">더존 계정별원장 분석</h1>
             </div>
-            <div className="w-24" /> {/* Spacer for centering */}
+            <Button variant="ghost" onClick={handleSignOut}>
+              <LogOut className="mr-2 h-4 w-4" />
+              로그아웃
+            </Button>
           </div>
         </div>
       </header>

@@ -22,7 +22,8 @@ const Index = () => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        loadLatestLedger(session.user.id);
+        // 로그인 후 바로 분석 페이지로 이동
+        navigate('/analysis');
       }
     });
 
@@ -31,12 +32,13 @@ const Index = () => {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        loadLatestLedger(session.user.id);
+        // 로그인 후 바로 분석 페이지로 이동
+        navigate('/analysis');
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [navigate]);
 
   const loadLatestLedger = async (userId: string) => {
     try {
