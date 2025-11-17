@@ -451,44 +451,6 @@ const AdvancedLedgerAnalysis = () => {
           </Card>
         )}
       </div>
-
-      {/* 전기 업로드 여부 확인 Dialog */}
-      <Dialog open={showPreviousDialog} onOpenChange={setShowPreviousDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>전기 계정별원장도 업로드하시겠습니까?</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              전기 데이터를 업로드하시면 전기 대비 비교 분석을 수행할 수 있습니다.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              전기 데이터가 없어도 당기 분석은 가능합니다.
-            </p>
-          </div>
-          <div className="flex gap-4">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowPreviousDialog(false);
-                setCurrentView('selection');
-              }}
-            >
-              아니요, 당기만 분석하겠습니다
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={() => {
-                setShowPreviousDialog(false);
-                setShowPreviousUpload(true);
-              }}
-            >
-              네, 전기 데이터도 업로드하겠습니다
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 
@@ -827,6 +789,44 @@ const AdvancedLedgerAnalysis = () => {
       <main className="container mx-auto px-4 py-8">
         {!workbook ? renderUploadScreen() : currentView === 'selection' ? renderSelectionScreen() : renderAnalysisView()}
       </main>
+
+      {/* 전기 업로드 여부 확인 Dialog - 전역으로 이동 */}
+      <Dialog open={showPreviousDialog} onOpenChange={setShowPreviousDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>전기 계정별원장도 업로드하시겠습니까?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              전기 데이터를 업로드하시면 전기 대비 비교 분석을 수행할 수 있습니다.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              전기 데이터가 없어도 당기 분석은 가능합니다.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setShowPreviousDialog(false);
+                setCurrentView('selection');
+              }}
+            >
+              아니요, 당기만 분석하겠습니다
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={() => {
+                setShowPreviousDialog(false);
+                setShowPreviousUpload(true);
+              }}
+            >
+              네, 전기 데이터도 업로드하겠습니다
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
