@@ -227,23 +227,6 @@ const Sampling = () => {
       const dateStr = row['__EMPTY'];
       return sheetName === selectedSamplingAccount && dateStr && typeof dateStr === 'string' && dateStr.trim() !== '';
     });
-    
-    if (firstRow) {
-      console.log('=== 샘플 데이터 구조 확인 ===');
-    if (firstRow) {
-      console.log('=== 샘플 데이터 구조 확인 ===');
-      console.log('전체 필드:', Object.keys(firstRow));
-      console.log('날짜:', firstRow['날짜']);
-      console.log('적    요    란:', firstRow['적    요    란']);
-      console.log('코드:', firstRow['코드']);
-      console.log('거래처:', firstRow['거래처']);
-      console.log('차   변:', firstRow['차   변']);
-      console.log('대   변:', firstRow['대   변']);
-      console.log('잔   액:', firstRow['잔   액']);
-      console.log('계   정   별   원   장:', firstRow['계   정   별   원   장']);
-    }
-      console.log('계   정   별   원   장:', firstRow['계   정   별   원   장']);
-    }
 
     let size: number;
     

@@ -156,59 +156,15 @@ const DualOffsetAnalysis = () => {
   const dualClients = useMemo(() => {
     if (!debitAccount || !creditAccount) return [];
 
-    console.log('=== 분석 시작 ===');
-    console.log('차변 계정:', debitAccount);
-    console.log('대변 계정:', creditAccount);
-    console.log('전체 데이터 행 수:', ledgerData.length);
-
-    // 선택한 계정의 데이터만 먼저 출력 (처음 5개)
-    const debitRows = ledgerData.filter(row => row['시트명'] === debitAccount).slice(0, 5);
-    const creditRows = ledgerData.filter(row => row['시트명'] === creditAccount).slice(0, 5);
-    
-    console.log('차변 계정 샘플 데이터:', debitRows);
-    console.log('대변 계정 샘플 데이터:', creditRows);
-    console.log('차변 계정 전체 행 수:', ledgerData.filter(row => row['시트명'] === debitAccount).length);
-    console.log('대변 계정 전체 행 수:', ledgerData.filter(row => row['시트명'] === creditAccount).length);
-    
-    // 대변 계정의 필드 구조 확인
-    if (creditRows.length > 0) {
-      console.log('대변 계정 첫 번째 행의 모든 키:', Object.keys(creditRows[0]));
-      console.log('대변 계정 "계 정 별 원 장" 필드 샘플:');
-      creditRows.slice(0, 5).forEach((row, idx) => {
-        console.log(`대변 행 ${idx + 1} 원장 값:`, row['계 정 별 원 장']);
-        console.log(`대변 행 ${idx + 1} 타입:`, typeof row['계 정 별 원 장']);
-        if (typeof row['계 정 별 원 장'] === 'object') {
-          console.log(`대변 행 ${idx + 1} 객체 키:`, Object.keys(row['계 정 별 원 장'] || {}));
-        }
-      });
-    }
-
     // 각 계정별로 거래처-금액 맵 생성
     const debitMap = new Map<string, number>();
     const creditMap = new Map<string, number>();
 
-    ledgerData.forEach((row, index) => {
+    ledgerData.forEach((row) => {
       const sheetName = row['시트명'];
       if (sheetName !== debitAccount && sheetName !== creditAccount) return;
 
       const client = extractClient(row);
-      
-      // 처음 몇 개만 자세히 로깅
-      if (index < 20 && (sheetName === debitAccount || sheetName === creditAccount)) {
-        console.log(`행 ${index}:`, {
-          시트명: sheetName,
-          추출된거래처: client,
-          원본데이터: {
-            날짜: row['날짜'],
-            적요: row['적    요    란'],
-            코드: row['코드'],
-            거래처: row['거래처'],
-            차변: row['차   변'],
-            대변: row['대   변']
-          }
-        });
-      }
-
       if (!client) return;
 
       // 금액 필드 - 한글 필드명 사용
@@ -248,9 +204,6 @@ const DualOffsetAnalysis = () => {
       }
     });
 
-    console.log('차변 거래처 맵:', Object.fromEntries(debitMap));
-    console.log('대변 거래처 맵:', Object.fromEntries(creditMap));
-
     // 공통 거래처 찾기
     const common: Array<{ client: string; debitAmount: number; creditAmount: number }> = [];
     
@@ -264,7 +217,6 @@ const DualOffsetAnalysis = () => {
       }
     });
 
-    console.log('공통 거래처 목록:', common);
     return common.sort((a, b) => a.client.localeCompare(b.client));
   }, [ledgerData, debitAccount, creditAccount]);
 
