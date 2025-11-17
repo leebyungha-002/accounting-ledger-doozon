@@ -187,6 +187,8 @@ const AdvancedLedgerAnalysis = () => {
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isDraggingPrevious, setIsDraggingPrevious] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [showPreviousDialog, setShowPreviousDialog] = useState<boolean>(false);
+  const [showPreviousUpload, setShowPreviousUpload] = useState<boolean>(false);
 
   // Analysis states
   const [analysisQuestion, setAnalysisQuestion] = useState<string>('이 계정의 거래 내역을 요약하고, 특이사항이 있다면 알려주세요.');
@@ -246,6 +248,9 @@ const AdvancedLedgerAnalysis = () => {
           title: '성공',
           description: `${allSheetNames.length}개 시트를 불러왔습니다.`,
         });
+        
+        // 당기 업로드 완료 후 전기 업로드 여부 물어보기
+        setShowPreviousDialog(true);
       } catch (err) {
         toast({
           title: '오류',
@@ -287,6 +292,10 @@ const AdvancedLedgerAnalysis = () => {
           title: '성공',
           description: '전기 원장 파일을 불러왔습니다.',
         });
+        
+        // 전기 업로드 완료 후 바로 분석 메뉴로
+        setCurrentView('selection');
+        setShowPreviousUpload(false);
       } catch (err) {
         toast({
           title: '오류',
@@ -335,7 +344,7 @@ const AdvancedLedgerAnalysis = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5" />
-              1. 당기 원장 업로드 (필수)
+              당기 계정별원장 업로드
             </CardTitle>
             <CardDescription>
               분석할 현재 기간의 계정별원장 파일을 업로드하세요.
@@ -368,114 +377,218 @@ const AdvancedLedgerAnalysis = () => {
               </p>
             </div>
             {fileName && (
-              <div className="mt-4 flex items-center gap-2 p-3 bg-primary/10 rounded-lg">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-                <span className="text-sm font-medium">{fileName}</span>
+              <div className="mt-4 flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+                <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                <span className="text-sm font-medium text-green-900 dark:text-green-100">{fileName}</span>
+                <Badge variant="outline" className="ml-auto bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700">
+                  업로드 완료
+                </Badge>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Previous Period Upload */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5" />
-              2. 전기 원장 업로드 (선택)
-            </CardTitle>
-            <CardDescription>
-              전기 데이터 비교 분석을 원할 경우 업로드하세요.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                isDraggingPrevious ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
-              }`}
-              onClick={() => previousFileInputRef.current?.click()}
-              onDragOver={handleDragOver}
-              onDragEnter={(e) => handleDragEnter(e, setIsDraggingPrevious)}
-              onDragLeave={(e) => handleDragLeave(e, setIsDraggingPrevious)}
-              onDrop={(e) => handleDrop(e, setIsDraggingPrevious, handlePreviousFile)}
-            >
-              <input
-                type="file"
-                ref={previousFileInputRef}
-                onChange={(e) => handlePreviousFile(e.target.files?.[0])}
-                style={{ display: 'none' }}
-                accept=".xlsx, .xls"
-              />
-              <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                파일을 드래그하거나 클릭하여 업로드
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">
-                엑셀 파일 (.xlsx, .xls)
-              </p>
-            </div>
-            {previousFileName && (
-              <div className="mt-4 flex items-center gap-2 p-3 bg-primary/10 rounded-lg">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-                <span className="text-sm font-medium">{previousFileName}</span>
+        {/* Previous Period Upload - 조건부 표시 */}
+        {showPreviousUpload && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5" />
+                전기 계정별원장 업로드
+              </CardTitle>
+              <CardDescription>
+                전기 데이터 비교 분석을 위한 파일을 업로드하세요.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div
+                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                  isDraggingPrevious ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+                }`}
+                onClick={() => previousFileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragEnter={(e) => handleDragEnter(e, setIsDraggingPrevious)}
+                onDragLeave={(e) => handleDragLeave(e, setIsDraggingPrevious)}
+                onDrop={(e) => handleDrop(e, setIsDraggingPrevious, handlePreviousFile)}
+              >
+                <input
+                  type="file"
+                  ref={previousFileInputRef}
+                  onChange={(e) => handlePreviousFile(e.target.files?.[0])}
+                  style={{ display: 'none' }}
+                  accept=".xlsx, .xls"
+                />
+                <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  파일을 드래그하거나 클릭하여 업로드
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  엑셀 파일 (.xlsx, .xls)
+                </p>
               </div>
-            )}
-          </CardContent>
-        </Card>
+              {previousFileName && (
+                <div className="mt-4 flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <span className="text-sm font-medium text-blue-900 dark:text-blue-100">{previousFileName}</span>
+                  <Badge variant="outline" className="ml-auto bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                    업로드 완료
+                  </Badge>
+                </div>
+              )}
+              <div className="mt-4 text-center">
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => {
+                    setShowPreviousUpload(false);
+                    setCurrentView('selection');
+                  }}
+                >
+                  전기 데이터 없이 계속하기
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      {workbook && (
-        <div className="text-center">
-          <Button size="lg" onClick={() => setCurrentView('selection')}>
-            분석 메뉴로 이동
-          </Button>
-        </div>
-      )}
+      {/* 전기 업로드 여부 확인 Dialog */}
+      <Dialog open={showPreviousDialog} onOpenChange={setShowPreviousDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>전기 계정별원장도 업로드하시겠습니까?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              전기 데이터를 업로드하시면 전기 대비 비교 분석을 수행할 수 있습니다.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              전기 데이터가 없어도 당기 분석은 가능합니다.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setShowPreviousDialog(false);
+                setCurrentView('selection');
+              }}
+            >
+              아니요, 당기만 분석하겠습니다
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={() => {
+                setShowPreviousDialog(false);
+                setShowPreviousUpload(true);
+              }}
+            >
+              네, 전기 데이터도 업로드하겠습니다
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 
   const renderSelectionScreen = () => (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>분석 메뉴 선택</CardTitle>
-            <CardDescription className="mt-2">
-              업로드된 파일: {fileName}
-            </CardDescription>
+    <div className="space-y-6">
+      {/* 업로드된 파일 정보 */}
+      <Card className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-950 dark:to-blue-950 border-primary/20">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">업로드된 파일</CardTitle>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => {
+              setWorkbook(null);
+              setFileName('');
+              setPreviousWorkbook(null);
+              setPreviousFileName('');
+              setShowPreviousUpload(false);
+              setShowPreviousDialog(false);
+              setCurrentView('selection');
+            }}>
+              다른 파일 선택
+            </Button>
           </div>
-          <Button variant="outline" onClick={() => {
-            setWorkbook(null);
-            setFileName('');
-            setPreviousWorkbook(null);
-            setPreviousFileName('');
-            setCurrentView('selection');
-          }}>
-            다른 파일 선택
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {analysisOptions.map((option) => (
-            <Card
-              key={option.id}
-              className="cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => setCurrentView(option.id as View)}
-            >
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <option.icon className="h-5 w-5 text-primary" />
-                  <CardTitle className="text-base">{option.title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {/* 당기 파일 */}
+            <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+              <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+              <div className="flex-1">
+                <div className="text-sm font-medium text-green-900 dark:text-green-100">당기: {fileName}</div>
+                <div className="text-xs text-green-700 dark:text-green-300">{accountNames.length}개 계정과목</div>
+              </div>
+              <Badge variant="outline" className="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700">
+                당기
+              </Badge>
+            </div>
+            
+            {/* 전기 파일 */}
+            {previousFileName ? (
+              <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-blue-900 dark:text-blue-100">전기: {previousFileName}</div>
+                  <div className="text-xs text-blue-700 dark:text-blue-300">전기 비교 분석 가능</div>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{option.description}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+                <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                  전기
+                </Badge>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg border border-dashed">
+                <div className="flex-1">
+                  <div className="text-sm text-muted-foreground">전기 데이터 없음 (당기만 분석)</div>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => setShowPreviousUpload(true)}
+                >
+                  전기 추가하기
+                </Button>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 분석 메뉴 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>분석 메뉴 선택</CardTitle>
+          <CardDescription>
+            원하시는 분석을 선택하세요
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {analysisOptions.map((option) => (
+              <Card
+                key={option.id}
+                className="cursor-pointer hover:shadow-lg transition-shadow"
+                onClick={() => setCurrentView(option.id as View)}
+              >
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <option.icon className="h-5 w-5 text-primary" />
+                    <CardTitle className="text-base">{option.title}</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">{option.description}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 
   const currentAccountData = useMemo(() => {
