@@ -2,7 +2,7 @@
 
 ## 📋 프로젝트 개요
 
-더존(Doojohn) ERP 계정별원장 분석 웹 애플리케이션
+더존(DuoZon) ERP 계정별원장 분석 웹 애플리케이션
 - **기술 스택**: React, TypeScript, Vite, Tailwind CSS, shadcn/ui
 - **백엔드**: Supabase (인증, 데이터베이스, Edge Functions)
 - **빌드 상태**: ✅ 성공

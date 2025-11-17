@@ -1,73 +1,121 @@
-# Welcome to your Lovable project
+# 더존(DuoZon) 계정별원장 분석 시스템
 
-## Project info
+더존 ERP의 계정별원장 데이터를 분석하는 웹 애플리케이션입니다.
 
-**URL**: https://lovable.dev/projects/0ebf0f9d-7a2b-4470-af80-906c3b83603f
+## 📋 프로젝트 정보
 
-## How can I edit this code?
+**Lovable URL**: https://lovable.dev/projects/0ebf0f9d-7a2b-4470-af80-906c3b83603f
 
-There are several ways of editing your application.
+## ✨ 주요 기능
 
-**Use Lovable**
+### 1. 파일 업로드
+- Excel 파일(.xlsx, .xls) 업로드
+- 여러 시트의 데이터 자동 통합
+- Supabase에 자동 저장
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/0ebf0f9d-7a2b-4470-af80-906c3b83603f) and start prompting.
+### 2. 이중/상계 거래처 분석
+- 차변/대변 계정에서 공통 거래처 검색
+- 계정별 금액 합계 표시
+- Excel 다운로드
 
-Changes made via Lovable will be committed automatically to this repo.
+### 3. 월별 손익분석
+- 판매비와관리비 월별 집계
+- 연간 추세 분석
+- Excel 다운로드
 
-**Use your preferred IDE**
+### 4. 통계적 샘플링
+- 무작위/체계적/금액가중(MUS) 샘플링
+- 위험계수 기반 샘플 크기 계산
+- 신뢰수준별 통계표 제공
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### 5. AI 분석
+- 추세 분석
+- 이상 거래 탐지
+- 차대 균형 분석
+- 재무 인사이트
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## 🛠 기술 스택
 
-Follow these steps:
+- **프론트엔드**: React 18, TypeScript, Vite
+- **UI**: Tailwind CSS, shadcn-ui
+- **백엔드**: Supabase (인증, 데이터베이스, Edge Functions)
+- **AI**: Google Gemini 2.5 Flash
+- **라이브러리**: React Query, xlsx, React Markdown
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
+## 🚀 시작하기
+
+### 필수 요구사항
+- Node.js 18 이상
+- npm 또는 yarn
+
+### 설치 및 실행
+
+```bash
+# 저장소 클론
 git clone <YOUR_GIT_URL>
 
-# Step 2: Navigate to the project directory.
+# 프로젝트 디렉토리로 이동
 cd <YOUR_PROJECT_NAME>
 
-# Step 3: Install the necessary dependencies.
-npm i
+# 의존성 설치
+npm install
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# 개발 서버 실행
 npm run dev
+
+# 프로덕션 빌드
+npm run build
+
+# 빌드 미리보기
+npm run preview
 ```
 
-**Edit a file directly in GitHub**
+### 환경 변수 설정
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+프로젝트 루트에 `.env` 파일을 생성하고 Supabase 설정을 추가하세요:
 
-**Use GitHub Codespaces**
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## 📝 코드 수정 방법
 
-## What technologies are used for this project?
+### Lovable 사용
+[Lovable 프로젝트](https://lovable.dev/projects/0ebf0f9d-7a2b-4470-af80-906c3b83603f)에 접속하여 프롬프트로 수정할 수 있습니다.
 
-This project is built with:
+### 로컬 IDE 사용
+선호하는 IDE(VS Code, WebStorm 등)로 코드를 수정하고 push하면 Lovable에도 자동으로 반영됩니다.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### GitHub에서 직접 수정
+- 파일로 이동
+- 우측 상단의 "Edit" 버튼(연필 아이콘) 클릭
+- 수정 후 커밋
 
-## How can I deploy this project?
+### GitHub Codespaces 사용
+- 저장소 메인 페이지에서 "Code" 버튼 클릭
+- "Codespaces" 탭 선택
+- "New codespace" 클릭하여 클라우드 개발 환경 시작
 
-Simply open [Lovable](https://lovable.dev/projects/0ebf0f9d-7a2b-4470-af80-906c3b83603f) and click on Share -> Publish.
+## 🌐 배포
 
-## Can I connect a custom domain to my Lovable project?
+[Lovable](https://lovable.dev/projects/0ebf0f9d-7a2b-4470-af80-906c3b83603f)에서 Share → Publish를 클릭하여 배포할 수 있습니다.
 
-Yes, you can!
+### 커스텀 도메인 연결
+Project > Settings > Domains로 이동하여 Connect Domain을 클릭하세요.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+자세한 내용: [커스텀 도메인 설정 가이드](https://docs.lovable.dev/features/custom-domain#custom-domain)
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## 📚 상세 문서
+
+프로젝트의 상세 분석과 개선 권장사항은 [ANALYSIS_SUMMARY.md](./ANALYSIS_SUMMARY.md)를 참고하세요.
+
+## 🔒 보안
+
+- 환경 변수는 절대 커밋하지 마세요
+- `.env` 파일은 `.gitignore`에 포함되어 있습니다
+- Supabase RLS(Row Level Security) 정책이 활성화되어 있습니다
+
+## 📄 라이선스
+
+이 프로젝트는 Lovable을 통해 생성되었습니다.
