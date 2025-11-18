@@ -14,6 +14,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { BenfordAnalysis } from '@/components/BenfordAnalysis';
 import { DualOffsetAnalysis } from './DualOffsetAnalysis';
 import { DuplicateVendorAnalysis } from './DuplicateVendorAnalysis';
+import { MonthlyTrendAnalysis } from './MonthlyTrendAnalysis';
 import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
 import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { addUsageRecord, getUsageSummary, clearUsageHistory, exportUsageToCSV, type UsageSummary } from '@/lib/usageTracker';
@@ -673,6 +674,18 @@ const AdvancedLedgerAnalysis = () => {
       if (!workbook) return null;
       return (
         <DuplicateVendorAnalysis 
+          workbook={workbook}
+          accountNames={accountNames}
+          onBack={() => setCurrentView('selection')}
+        />
+      );
+    }
+
+    // Monthly Trend Analysis
+    if (currentView === 'monthly_trend') {
+      if (!workbook) return null;
+      return (
+        <MonthlyTrendAnalysis 
           workbook={workbook}
           accountNames={accountNames}
           onBack={() => setCurrentView('selection')}
