@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { analyzeWithFlash, hasApiKey } from '@/lib/geminiClient';
 import { Download, Loader2, BarChart3 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -110,27 +110,42 @@ export const BenfordAnalysis: React.FC<BenfordAnalysisProps> = ({
       setSourceData(accountData);
 
       // 3. Get AI Analysis
-      const { data, error } = await supabase.functions.invoke('analyze-ledger', {
-        body: {
-          ledgerData: [],
-          analysisType: 'benford',
-          accountName: accountName,
-          benfordResults: results,
-          totalCount: totalCount,
-        },
-      });
-
-      if (error) throw error;
-
-      if (data.error) {
+      if (!hasApiKey()) {
         toast({
-          title: 'AI 분석 오류',
-          description: data.error,
+          title: 'API Key 필요',
+          description: 'AI 분석을 위해 Google Gemini API Key를 설정해주세요.',
           variant: 'destructive',
         });
-      } else {
-        setAiInsight(data.analysis || '');
+        return;
       }
+      
+      const prompt = `
+# 벤포드 법칙 분석 결과
+
+## 계정 정보
+- 계정과목: ${accountName}
+- 금액 기준열: ${selectedColumn}
+- 총 데이터 수: ${totalCount.toLocaleString()}건
+
+## 첫째 자리 수 분포
+
+| 첫째 자리 | 실제 건수 | 실제 분포(%) | 벤포드 분포(%) | 차이(%) |
+|----------|----------|-------------|---------------|---------|
+${results.map(r => `| ${r.digit} | ${r.actualCount.toLocaleString()} | ${r.actualPercent.toFixed(1)} | ${r.benfordPercent.toFixed(1)} | ${r.difference > 0 ? '+' : ''}${r.difference.toFixed(1)} |`).join('\n')}
+
+## 요구사항
+당신은 숙련된 회계 감사인입니다. 위 벤포드 법칙 분석 결과를 검토하고 다음을 제공해주세요:
+
+1. **전반적 평가**: 실제 분포가 벤포드 법칙에 얼마나 부합하는지 평가
+2. **특이사항**: 차이가 5% 이상인 수가 있다면, 그 의미와 잠재적 위험 분석
+3. **권고사항**: 추가 조사가 필요한 영역이나 주의해야 할 점
+
+한국어로 답변하고, 마크다운 형식으로 작성해주세요.
+금액은 천 단위 구분 기호(,)를 사용해주세요.
+`;
+
+      const analysis = await analyzeWithFlash(prompt);
+      setAiInsight(analysis);
 
     } catch (err: any) {
       toast({

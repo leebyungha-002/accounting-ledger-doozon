@@ -218,6 +218,15 @@ const AdvancedLedgerAnalysis = () => {
   const [showApiKeyDialog, setShowApiKeyDialog] = useState<boolean>(false);
   const [apiKeyInput, setApiKeyInput] = useState<string>('');
   const [apiKeyExists, setApiKeyExists] = useState<boolean>(hasApiKey());
+  
+  // Cost estimation states
+  const [estimatedCostInfo, setEstimatedCostInfo] = useState<{
+    totalCount: number;
+    sampleSize: number;
+    samplingRatio: number;
+    estimatedTokens: number;
+    estimatedCost: number;
+  } | null>(null);
 
   const analysisOptions = [
     { id: 'account_analysis', title: '계정별원장 AI 분석', description: '특정 계정을 선택하여 AI에게 거래내역 요약, 특이사항 분석 등 자유로운 질문을 할 수 있습니다.', icon: FileText },
@@ -599,6 +608,33 @@ const AdvancedLedgerAnalysis = () => {
       )
     );
   }, [currentAccountData]);
+  
+  // Calculate cost estimation when account or question changes
+  React.useEffect(() => {
+    if (currentView === 'account_analysis' && currentAccountData.length > 0 && selectedAccount) {
+      const totalCount = currentAccountData.length;
+      const sampleSize = calculateSampleSize(totalCount);
+      const samplingRatio = (sampleSize / totalCount) * 100;
+      
+      // Estimate prompt size
+      const dataSummary = generateDataSummary(currentAccountData, selectedAccount, amountColumns);
+      const sampleDataSize = sampleSize * 200; // Rough estimate: 200 tokens per transaction
+      const promptSize = dataSummary.length + sampleDataSize + analysisQuestion.length + 500;
+      
+      const estimatedTokens = estimateTokens(promptSize.toString());
+      const estimatedCost = estimateCost(estimatedTokens, 2000, true);
+      
+      setEstimatedCostInfo({
+        totalCount,
+        sampleSize,
+        samplingRatio,
+        estimatedTokens,
+        estimatedCost,
+      });
+    } else {
+      setEstimatedCostInfo(null);
+    }
+  }, [currentView, currentAccountData, selectedAccount, analysisQuestion, amountColumns]);
 
   const renderAnalysisView = () => {
     const currentOption = analysisOptions.find(o => o.id === currentView);
@@ -691,6 +727,57 @@ const AdvancedLedgerAnalysis = () => {
                 placeholder="이 계정의 거래 내역을 요약하고, 특이사항이 있다면 알려주세요."
               />
             </div>
+
+            {/* 예상 비용 정보 */}
+            {estimatedCostInfo && (
+              <Card className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950 dark:to-purple-950 border-blue-200 dark:border-blue-800">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Info className="h-4 w-4" />
+                    예상 비용 및 샘플링 정보
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">전체 거래 수</div>
+                      <div className="text-lg font-bold text-blue-700 dark:text-blue-300">
+                        {estimatedCostInfo.totalCount.toLocaleString()}건
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">샘플 크기</div>
+                      <div className="text-lg font-bold text-green-700 dark:text-green-300">
+                        {estimatedCostInfo.sampleSize.toLocaleString()}건
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">샘플링 비율</div>
+                      <div className="text-lg font-bold text-purple-700 dark:text-purple-300">
+                        {estimatedCostInfo.samplingRatio.toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">예상 비용</div>
+                      <div className="text-lg font-bold text-orange-700 dark:text-orange-300">
+                        ₩{estimatedCostInfo.estimatedCost.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="pt-2 border-t border-blue-200 dark:border-blue-800">
+                    <div className="flex items-start gap-2 text-xs text-blue-700 dark:text-blue-300">
+                      <Sparkles className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                      <div className="space-y-1">
+                        <p>• 스마트 샘플링: 금액 상위 30%, 최신 20%, 이상치 10%, 월별 30%, 랜덤 10%</p>
+                        <p>• 예상 토큰: {estimatedCostInfo.estimatedTokens.toLocaleString()}개 (입력 + 출력 2,000개)</p>
+                        <p>• Gemini 2.0 Flash 모델 사용 (빠르고 저렴)</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Button 
               onClick={async () => {
