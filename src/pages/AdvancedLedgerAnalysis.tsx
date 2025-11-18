@@ -138,9 +138,34 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
 
   if (headerIndex === -1) return { data: [], headers: [], orderedHeaders: [] };
 
-  const data = XLSX.utils.sheet_to_json<LedgerRow>(worksheet, { range: headerIndex });
-  const headers = data.length > 0 ? Object.keys(data[0]) : [];
+  const rawData = XLSX.utils.sheet_to_json<LedgerRow>(worksheet, { range: headerIndex });
+  const headers = rawData.length > 0 ? Object.keys(rawData[0]) : [];
   const orderedHeaders = (sheetDataAsArrays[headerIndex] || []).map(h => String(h || '').trim());
+
+  // 필터링: 합계행, 빈행, 헤더 중복 제거 (기존 데이터에 영향 없음)
+  const data = rawData.filter(row => {
+    // 1. 합계 행 제거: [전 기 이 월], [월 계], [누 계] 등
+    const firstValue = Object.values(row)[0];
+    if (firstValue && String(firstValue).includes('[') && String(firstValue).includes(']')) {
+      return false;
+    }
+    
+    // 2. 헤더 중복 제거 (두 번째 페이지 등)
+    const dateHeader = robustFindHeader(orderedHeaders, dateKeywords);
+    if (dateHeader && (row[dateHeader] === dateHeader || row[dateHeader] === '일  자' || row[dateHeader] === '일자')) {
+      return false;
+    }
+    
+    // 3. 완전 빈 행 제거 강화
+    const hasData = Object.values(row).some(val => {
+      if (val === null || val === undefined) return false;
+      const str = String(val).trim();
+      return str !== '' && str !== '0' && str !== '-';
+    });
+    if (!hasData) return false;
+    
+    return true;
+  });
 
   const dateHeader = robustFindHeader(orderedHeaders, dateKeywords);
   if (dateHeader) {
