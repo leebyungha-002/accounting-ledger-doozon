@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { BenfordAnalysis } from '@/components/BenfordAnalysis';
+import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
+import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import {
   FileSpreadsheet,
   Upload,
@@ -26,7 +28,12 @@ import {
   Download,
   CheckCircle2,
   Loader2,
-  Sparkles
+  Sparkles,
+  Settings,
+  Key,
+  Trash2,
+  Info,
+  ArrowLeft
 } from 'lucide-react';
 
 // Types
@@ -206,6 +213,11 @@ const AdvancedLedgerAnalysis = () => {
   // Analysis states
   const [analysisQuestion, setAnalysisQuestion] = useState<string>('이 계정의 거래 내역을 요약하고, 특이사항이 있다면 알려주세요.');
   const [analysisResult, setAnalysisResult] = useState<string>('');
+  
+  // API Key states
+  const [showApiKeyDialog, setShowApiKeyDialog] = useState<boolean>(false);
+  const [apiKeyInput, setApiKeyInput] = useState<string>('');
+  const [apiKeyExists, setApiKeyExists] = useState<boolean>(hasApiKey());
 
   const analysisOptions = [
     { id: 'account_analysis', title: '계정별원장 AI 분석', description: '특정 계정을 선택하여 AI에게 거래내역 요약, 특이사항 분석 등 자유로운 질문을 할 수 있습니다.', icon: FileText },
@@ -682,33 +694,84 @@ const AdvancedLedgerAnalysis = () => {
 
             <Button 
               onClick={async () => {
+                if (!hasApiKey()) {
+                  toast({
+                    title: 'API Key 필요',
+                    description: '먼저 Google Gemini API Key를 설정해주세요.',
+                    variant: 'destructive',
+                  });
+                  setShowApiKeyDialog(true);
+                  return;
+                }
+                
                 setIsLoading(true);
                 setAnalysisResult('');
+                
                 try {
-                  const { data, error } = await supabase.functions.invoke('analyze-ledger', {
-                    body: {
-                      ledgerData: currentAccountData.slice(0, 100),
-                      analysisType: 'account',
-                      accountName: selectedAccount,
-                      question: analysisQuestion,
-                    },
-                  });
-
-                  if (error) throw error;
+                  // 1. 샘플 크기 계산
+                  const totalCount = currentAccountData.length;
+                  const sampleSize = calculateSampleSize(totalCount);
                   
-                  if (data.error) {
-                    toast({
-                      title: '오류',
-                      description: data.error,
-                      variant: 'destructive',
-                    });
-                  } else {
-                    setAnalysisResult(data.analysis || '');
-                  }
+                  // 2. 스마트 샘플링
+                  const dateColumns = Object.keys(currentAccountData[0] || {}).filter(key => 
+                    key.toLowerCase().includes('일자') || key.toLowerCase().includes('날짜') || key.toLowerCase().includes('date')
+                  );
+                  
+                  const sampledData = smartSample(
+                    currentAccountData,
+                    sampleSize,
+                    amountColumns,
+                    dateColumns
+                  );
+                  
+                  // 3. 통계 요약 생성
+                  const dataSummary = generateDataSummary(currentAccountData, selectedAccount, amountColumns);
+                  
+                  // 4. 프롬프트 생성
+                  const prompt = `
+# 계정별원장 AI 분석
+
+## 전체 통계 정보
+${dataSummary}
+
+## 샘플 데이터 (${sampledData.length}/${totalCount}건)
+샘플링 방법: 스마트 샘플링 (금액 상위 30%, 최신 20%, 이상치 10%, 월별 균등 30%, 랜덤 10%)
+
+${JSON.stringify(sampledData, null, 2)}
+
+## 질문
+${analysisQuestion}
+
+## 요구사항
+- 위 통계 정보와 샘플 데이터를 바탕으로 질문에 답변해주세요.
+- 특이사항, 패턴, 위험 요소가 있다면 구체적으로 지적해주세요.
+- 한국어로 답변하고, 마크다운 형식으로 작성해주세요.
+- 금액은 천 단위 구분 기호(,)를 사용해주세요.
+`;
+                  
+                  // 5. 토큰 및 비용 추정
+                  const estimatedTokens = estimateTokens(prompt);
+                  const estimatedCostKRW = estimateCost(estimatedTokens);
+                  
+                  console.log(`📊 샘플링 정보:
+- 전체 거래: ${totalCount.toLocaleString()}건
+- 샘플 크기: ${sampledData.length.toLocaleString()}건 (${((sampledData.length / totalCount) * 100).toFixed(1)}%)
+- 예상 토큰: ${estimatedTokens.toLocaleString()}개
+- 예상 비용: ₩${estimatedCostKRW.toLocaleString()}원`);
+                  
+                  // 6. AI 분석 실행
+                  const analysis = await analyzeWithFlash(prompt);
+                  
+                  setAnalysisResult(analysis);
+                  
+                  toast({
+                    title: '분석 완료',
+                    description: `${sampledData.length}건의 샘플을 분석했습니다. (전체: ${totalCount}건)`,
+                  });
                 } catch (err: any) {
                   toast({
                     title: '오류',
-                    description: `AI 분석 중 오류: ${err.message}`,
+                    description: err.message || 'AI 분석 중 오류가 발생했습니다.',
                     variant: 'destructive',
                   });
                 } finally {
@@ -790,11 +853,32 @@ const AdvancedLedgerAnalysis = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <FileSpreadsheet className="h-6 w-6 text-primary" />
               <h1 className="text-2xl font-bold">더존 계정별원장 분석</h1>
             </div>
+            <Button
+              variant={apiKeyExists ? "outline" : "default"}
+              size="sm"
+              onClick={() => {
+                setApiKeyInput(getApiKey() || '');
+                setShowApiKeyDialog(true);
+              }}
+              className="flex items-center gap-2"
+            >
+              {apiKeyExists ? (
+                <>
+                  <Key className="h-4 w-4" />
+                  API Key 설정됨
+                </>
+              ) : (
+                <>
+                  <Settings className="h-4 w-4" />
+                  API Key 설정
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </header>
@@ -802,6 +886,106 @@ const AdvancedLedgerAnalysis = () => {
       <main className="container mx-auto px-4 py-8">
         {!workbook || showPreviousDialog || showPreviousUpload ? renderUploadScreen() : currentView === 'selection' ? renderSelectionScreen() : renderAnalysisView()}
       </main>
+
+      {/* API Key 설정 Dialog */}
+      <Dialog open={showApiKeyDialog} onOpenChange={setShowApiKeyDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              Google Gemini API Key 설정
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-950 p-4 border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-2">
+                <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                <div className="space-y-2 text-sm text-blue-900 dark:text-blue-100">
+                  <p className="font-semibold">🔒 데이터 보안 안내</p>
+                  <p>API Key를 입력하시면 귀하의 브라우저에서 직접 Google Gemini API에 연결됩니다.</p>
+                  <p>회계 데이터는 외부 서버를 거치지 않고, 브라우저 → Google AI로 직접 전송됩니다.</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300">• API Key는 브라우저 localStorage에 안전하게 저장됩니다.</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300">• 스마트 샘플링으로 전체 데이터의 1-20%만 전송됩니다.</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="apiKey">API Key</Label>
+              <Input
+                id="apiKey"
+                type="password"
+                placeholder="Google Gemini API Key를 입력하세요"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                API Key 발급: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary underline">Google AI Studio</a>
+              </p>
+            </div>
+            
+            {apiKeyExists && (
+              <div className="rounded-lg bg-green-50 dark:bg-green-950 p-3 border border-green-200 dark:border-green-800">
+                <div className="flex items-center gap-2 text-sm text-green-900 dark:text-green-100">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <span>API Key가 이미 설정되어 있습니다.</span>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex gap-2">
+              {apiKeyExists && (
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    deleteApiKey();
+                    setApiKeyInput('');
+                    setApiKeyExists(false);
+                    toast({
+                      title: '성공',
+                      description: 'API Key가 삭제되었습니다.',
+                    });
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  삭제
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => setShowApiKeyDialog(false)}
+                className="flex-1"
+              >
+                취소
+              </Button>
+              <Button
+                onClick={() => {
+                  if (!apiKeyInput.trim()) {
+                    toast({
+                      title: '오류',
+                      description: 'API Key를 입력해주세요.',
+                      variant: 'destructive',
+                    });
+                    return;
+                  }
+                  saveApiKey(apiKeyInput.trim());
+                  setApiKeyExists(true);
+                  setShowApiKeyDialog(false);
+                  toast({
+                    title: '성공',
+                    description: 'API Key가 저장되었습니다. 이제 AI 분석을 사용할 수 있습니다.',
+                  });
+                }}
+                className="flex-1"
+                disabled={!apiKeyInput.trim()}
+              >
+                저장
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 전기 업로드 여부 확인 Dialog - 전역으로 이동 */}
       {showPreviousDialog && (
