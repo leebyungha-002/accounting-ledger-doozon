@@ -1,411 +1,312 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ArrowLeft, Search, Check, ChevronsUpDown, Download } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
+import { ArrowLeft, ArrowRight, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
 
-const DualOffsetAnalysis = () => {
-  const navigate = useNavigate();
+type LedgerRow = { [key: string]: string | number | Date | undefined };
+
+interface OffsetVendor {
+  vendorName: string;
+  debitAccount: string;
+  debitTransactions: number;
+  debitAmount: number;
+  creditAccount: string;
+  creditTransactions: number;
+  creditAmount: number;
+  netAmount: number;
+}
+
+interface DualOffsetAnalysisProps {
+  workbook: XLSX.WorkBook;
+  accountNames: string[];
+  onBack: () => void;
+}
+
+const cleanAmount = (val: any): number => {
+  if (typeof val === 'string') {
+    return parseFloat(val.replace(/,/g, '')) || 0;
+  }
+  return typeof val === 'number' ? val : 0;
+};
+
+const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => 
+  headers.find(h => {
+    const cleanedHeader = (h || "").toLowerCase().replace(/\s/g, '').replace(/^\d+[_.-]?/, '');
+    return keywords.some(kw => {
+      const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
+      return cleanedHeader.includes(cleanedKw);
+    });
+  });
+
+const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: LedgerRow[], headers: string[] } => {
+  if (!worksheet) return { data: [], headers: [] };
+  
+  const rawData = XLSX.utils.sheet_to_json<LedgerRow>(worksheet);
+  const headers = rawData.length > 0 ? Object.keys(rawData[0]) : [];
+  
+  return { data: rawData, headers };
+};
+
+export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
+  workbook,
+  accountNames,
+  onBack,
+}) => {
   const { toast } = useToast();
-  const [ledgerData, setLedgerData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [debitAccount, setDebitAccount] = useState<string>('');
-  const [creditAccount, setCreditAccount] = useState<string>('');
-  const [openDebit, setOpenDebit] = useState(false);
-  const [openCredit, setOpenCredit] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [offsetVendors, setOffsetVendors] = useState<OffsetVendor[]>([]);
 
-  useEffect(() => {
-    loadLatestLedger();
-  }, []);
+  // 외상매출금 차변, 외상매입금/미지급금 대변 찾기
+  const relevantAccounts = useMemo(() => {
+    const debitAccounts = accountNames.filter(name => 
+      name.includes('외상매출') || name.includes('매출채권') || name.includes('받을')
+    );
+    
+    const creditAccounts = accountNames.filter(name => 
+      name.includes('외상매입') || name.includes('미지급') || name.includes('매입채무') || name.includes('지급')
+    );
+    
+    return { debitAccounts, creditAccounts };
+  }, [accountNames]);
 
-  const loadLatestLedger = async () => {
+  const handleAnalyze = () => {
+    setIsAnalyzing(true);
+    
     try {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session?.session?.user) {
-        navigate('/');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('general_ledgers')
-        .select('*')
-        .eq('user_id', session.session.user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (data) {
-        setLedgerData((data.data as any[]) || []);
+      const vendorMap = new Map<string, OffsetVendor>();
+      
+      // 1. 차변 계정 (외상매출금 등) 분석
+      relevantAccounts.debitAccounts.forEach(accountName => {
+        const sheet = workbook.Sheets[accountName];
+        const { data, headers } = getDataFromSheet(sheet);
+        
+        const vendorHeader = robustFindHeader(headers, ['거래처', '업체', '회사', 'vendor', 'customer']);
+        const debitHeader = robustFindHeader(headers, ['차변', 'debit', '차변금액']);
+        
+        if (!vendorHeader || !debitHeader) return;
+        
+        data.forEach(row => {
+          const vendorName = String(row[vendorHeader] || '').trim();
+          const debitAmount = cleanAmount(row[debitHeader]);
+          
+          if (!vendorName || debitAmount <= 0) return;
+          
+          if (!vendorMap.has(vendorName)) {
+            vendorMap.set(vendorName, {
+              vendorName,
+              debitAccount: accountName,
+              debitTransactions: 0,
+              debitAmount: 0,
+              creditAccount: '',
+              creditTransactions: 0,
+              creditAmount: 0,
+              netAmount: 0,
+            });
+          }
+          
+          const vendor = vendorMap.get(vendorName)!;
+          vendor.debitTransactions++;
+          vendor.debitAmount += debitAmount;
+        });
+      });
+      
+      // 2. 대변 계정 (외상매입금/미지급금 등) 분석
+      relevantAccounts.creditAccounts.forEach(accountName => {
+        const sheet = workbook.Sheets[accountName];
+        const { data, headers } = getDataFromSheet(sheet);
+        
+        const vendorHeader = robustFindHeader(headers, ['거래처', '업체', '회사', 'vendor', 'customer']);
+        const creditHeader = robustFindHeader(headers, ['대변', 'credit', '대변금액']);
+        
+        if (!vendorHeader || !creditHeader) return;
+        
+        data.forEach(row => {
+          const vendorName = String(row[vendorHeader] || '').trim();
+          const creditAmount = cleanAmount(row[creditHeader]);
+          
+          if (!vendorName || creditAmount <= 0) return;
+          
+          const existingVendor = vendorMap.get(vendorName);
+          
+          if (existingVendor) {
+            // 이미 차변에 있는 거래처
+            existingVendor.creditAccount = accountName;
+            existingVendor.creditTransactions++;
+            existingVendor.creditAmount += creditAmount;
+          }
+        });
+      });
+      
+      // 3. 양쪽에 모두 있는 거래처만 필터링
+      const offsetResults = Array.from(vendorMap.values())
+        .filter(v => v.debitAmount > 0 && v.creditAmount > 0)
+        .map(v => ({
+          ...v,
+          netAmount: v.debitAmount - v.creditAmount,
+        }))
+        .sort((a, b) => Math.abs(b.netAmount) - Math.abs(a.netAmount));
+      
+      setOffsetVendors(offsetResults);
+      
+      if (offsetResults.length === 0) {
+        toast({
+          title: '분석 완료',
+          description: '상계 가능한 거래처가 발견되지 않았습니다.',
+        });
       } else {
         toast({
-          title: '데이터 없음',
-          description: '먼저 계정별원장을 업로드해주세요.',
-          variant: 'destructive',
+          title: '분석 완료',
+          description: `${offsetResults.length}개의 상계 거래처를 발견했습니다.`,
         });
-        navigate('/');
       }
-    } catch (error) {
-      console.error('Error loading ledger:', error);
+      
+    } catch (err: any) {
       toast({
         title: '오류',
-        description: '데이터를 불러오는 중 오류가 발생했습니다.',
+        description: `분석 중 오류: ${err.message}`,
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      setIsAnalyzing(false);
     }
   };
-
-  // 거래처 정보 추출 - 개선
-  const extractClient = (row: any): string | null => {
-    // 거래처명은 '거래처' 필드에 있습니다
-    const clientField = row['거래처'];
-    
-    if (!clientField) return null;
-    
-    const strValue = String(clientField).trim();
-    
-    // 제외할 패턴들
-    const excludePatterns = [
-      '원   장',
-      '적    요',
-      '날짜',
-      '거래처',
-      '합계',
-      '총합계',
-      '[ 월',
-      '[ 누',
-      ']',
-      '차   변',
-      '대   변',
-      '잔   액',
-      '코드',
-      '~' // 날짜 범위 표시
-    ];
-    
-    // 헤더나 합계 행이 아니고, 실제 값이 있으면 반환
-    if (strValue && 
-        strValue.length > 0 &&
-        !excludePatterns.some(pattern => strValue.includes(pattern))) {
-      return strValue;
-    }
-    
-    return null;
-  };
-
-  const downloadExcel = () => {
-    if (!debitAccount || !creditAccount || dualClients.length === 0) {
-      toast({
-        title: '오류',
-        description: '다운로드할 데이터가 없습니다.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    const wb = XLSX.utils.book_new();
-    const wsData = [
-      ['이중/상계 가능 거래처 분석'],
-      ['차변 계정', debitAccount],
-      ['대변 계정', creditAccount],
-      ['분석 일시', new Date().toLocaleString('ko-KR')],
-      [],
-      ['번호', '거래처명', `${debitAccount} 합계`, `${creditAccount} 합계`],
-      ...dualClients.map((item, index) => [
-        index + 1,
-        item.client,
-        item.debitAmount,
-        item.creditAmount,
-      ]),
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 20 }, { wch: 20 }];
-
-    XLSX.utils.book_append_sheet(wb, ws, '거래처분석');
-    XLSX.writeFile(wb, `이중상계거래처분석_${debitAccount}_${creditAccount}_${new Date().toISOString().split('T')[0]}.xlsx`);
-
-    toast({
-      title: '다운로드 완료',
-      description: '분석 결과를 엑셀 파일로 저장했습니다.',
-    });
-  };
-
-  // 모든 계정(시트명) 목록
-  const allAccounts = useMemo(() => {
-    const accounts = new Set<string>();
-    ledgerData.forEach(row => {
-      const account = row['시트명'];
-      if (account && String(account).trim()) {
-        accounts.add(String(account).trim());
-      }
-    });
-    return Array.from(accounts).sort();
-  }, [ledgerData]);
-
-  // 차변/대변 양쪽에 모두 나타나는 거래처 분석
-  const dualClients = useMemo(() => {
-    if (!debitAccount || !creditAccount) return [];
-
-    // 각 계정별로 거래처-금액 맵 생성
-    const debitMap = new Map<string, number>();
-    const creditMap = new Map<string, number>();
-
-    ledgerData.forEach((row) => {
-      const sheetName = row['시트명'];
-      if (sheetName !== debitAccount && sheetName !== creditAccount) return;
-
-      const client = extractClient(row);
-      if (!client) return;
-
-      // 금액 필드 - 한글 필드명 사용
-      const debitValue = row['차   변'];
-      const creditValue = row['대   변'];
-      
-      // 숫자로 변환
-      let debitNum = 0;
-      let creditNum = 0;
-      
-      if (debitValue) {
-        const str = String(debitValue).replace(/,/g, '');
-        debitNum = parseFloat(str);
-      }
-      
-      if (creditValue) {
-        const str = String(creditValue).replace(/,/g, '');
-        creditNum = parseFloat(str);
-      }
-      
-      // 차변 계정: 차변금액 우선, 없으면 대변금액
-      if (sheetName === debitAccount) {
-        const amount = !isNaN(debitNum) && debitNum > 0 ? debitNum : 
-                      !isNaN(creditNum) && creditNum > 0 ? creditNum : 0;
-        if (amount > 0) {
-          debitMap.set(client, (debitMap.get(client) || 0) + amount);
-        }
-      }
-      
-      // 대변 계정: 대변금액 우선, 없으면 차변금액
-      if (sheetName === creditAccount) {
-        const amount = !isNaN(creditNum) && creditNum > 0 ? creditNum : 
-                      !isNaN(debitNum) && debitNum > 0 ? debitNum : 0;
-        if (amount > 0) {
-          creditMap.set(client, (creditMap.get(client) || 0) + amount);
-        }
-      }
-    });
-
-    // 공통 거래처 찾기
-    const common: Array<{ client: string; debitAmount: number; creditAmount: number }> = [];
-    
-    debitMap.forEach((debitAmount, client) => {
-      if (creditMap.has(client)) {
-        common.push({ 
-          client, 
-          debitAmount, 
-          creditAmount: creditMap.get(client) || 0 
-        });
-      }
-    });
-
-    return common.sort((a, b) => a.client.localeCompare(b.client));
-  }, [ledgerData, debitAccount, creditAccount]);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">데이터를 불러오는 중...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto px-4 py-4">
-          <Button variant="ghost" onClick={() => navigate('/')} className="mb-2">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            돌아가기
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-primary" />
+                외상매출/매입 상계 거래처 분석
+              </CardTitle>
+              <CardDescription className="mt-2">
+                외상매출금(차변)과 외상매입금/미지급금(대변)에 동시에 나타나는 거래처를 찾아 상계 가능 여부를 분석합니다.
+              </CardDescription>
+            </div>
+            <Button variant="ghost" onClick={onBack}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              뒤로가기
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg bg-blue-50 dark:bg-blue-950 p-4 border border-blue-200 dark:border-blue-800">
+            <div className="space-y-2 text-sm">
+              <p className="font-semibold text-blue-900 dark:text-blue-100">📊 분석 대상 계정</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">차변 계정 (외상매출금 등):</p>
+                  <div className="flex flex-wrap gap-1">
+                    {relevantAccounts.debitAccounts.map(acc => (
+                      <Badge key={acc} variant="outline" className="text-xs bg-green-100 dark:bg-green-900">
+                        {acc}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">대변 계정 (외상매입금/미지급금 등):</p>
+                  <div className="flex flex-wrap gap-1">
+                    {relevantAccounts.creditAccounts.map(acc => (
+                      <Badge key={acc} variant="outline" className="text-xs bg-orange-100 dark:bg-orange-900">
+                        {acc}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <Button 
+            onClick={handleAnalyze} 
+            disabled={isAnalyzing || relevantAccounts.debitAccounts.length === 0 || relevantAccounts.creditAccounts.length === 0}
+            className="w-full"
+          >
+            {isAnalyzing ? '분석 중...' : '상계 거래처 분석 시작'}
           </Button>
-          <div className="flex items-center gap-2">
-            <Search className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl font-bold">이중/상계 가능 거래처 분석</h1>
+        </CardContent>
+      </Card>
+
+      {offsetVendors.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">상계 거래처 목록 ({offsetVendors.length}개)</h3>
+            <Badge variant="outline" className="text-sm">
+              총 상계 가능 금액: ₩{offsetVendors.reduce((sum, v) => sum + Math.min(v.debitAmount, v.creditAmount), 0).toLocaleString()}
+            </Badge>
+          </div>
+          
+          <div className="grid grid-cols-1 gap-4">
+            {offsetVendors.map((vendor, idx) => (
+              <Card key={idx} className="hover:shadow-lg transition-shadow">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">{vendor.vendorName}</CardTitle>
+                    <Badge variant={Math.abs(vendor.netAmount) > 1000000 ? "destructive" : "secondary"}>
+                      순액: ₩{vendor.netAmount.toLocaleString()}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* 차변 (왼쪽) */}
+                    <div className="space-y-2 p-4 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800">
+                      <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
+                        <TrendingUp className="h-4 w-4" />
+                        <span className="font-semibold text-sm">차변 (받을금액)</span>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-green-600 dark:text-green-400">{vendor.debitAccount}</div>
+                        <div className="text-2xl font-bold text-green-900 dark:text-green-100">
+                          ₩{vendor.debitAmount.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-green-600 dark:text-green-400">
+                          {vendor.debitTransactions.toLocaleString()}건
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* 대변 (오른쪽) */}
+                    <div className="space-y-2 p-4 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800">
+                      <div className="flex items-center gap-2 text-orange-700 dark:text-orange-300">
+                        <TrendingDown className="h-4 w-4" />
+                        <span className="font-semibold text-sm">대변 (지급금액)</span>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-orange-600 dark:text-orange-400">{vendor.creditAccount}</div>
+                        <div className="text-2xl font-bold text-orange-900 dark:text-orange-100">
+                          ₩{vendor.creditAmount.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-orange-600 dark:text-orange-400">
+                          {vendor.creditTransactions.toLocaleString()}건
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* 상계 가능 금액 */}
+                  <div className="mt-4 p-3 rounded-lg bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-purple-900 dark:text-purple-100">
+                        상계 가능 금액:
+                      </span>
+                      <span className="text-lg font-bold text-purple-900 dark:text-purple-100">
+                        ₩{Math.min(vendor.debitAmount, vendor.creditAmount).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8 space-y-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>계정 선택</CardTitle>
-            <CardDescription>
-              차변 계정과 대변 계정을 선택하면 양쪽에 모두 나타나는 거래처를 검색합니다
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">차변 계정</label>
-                <Popover open={openDebit} onOpenChange={setOpenDebit}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={openDebit}
-                      className="w-full justify-between"
-                    >
-                      {debitAccount || "차변 계정을 선택하세요"}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
-                    <Command>
-                      <CommandInput placeholder="계정 검색..." />
-                      <CommandList>
-                        <CommandEmpty>계정을 찾을 수 없습니다.</CommandEmpty>
-                        <CommandGroup>
-                          {allAccounts.map((account) => (
-                            <CommandItem
-                              key={account}
-                              value={account}
-                              onSelect={(currentValue) => {
-                                setDebitAccount(currentValue === debitAccount ? "" : account);
-                                setOpenDebit(false);
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  debitAccount === account ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              {account}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">대변 계정</label>
-                <Popover open={openCredit} onOpenChange={setOpenCredit}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={openCredit}
-                      className="w-full justify-between"
-                    >
-                      {creditAccount || "대변 계정을 선택하세요"}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
-                    <Command>
-                      <CommandInput placeholder="계정 검색..." />
-                      <CommandList>
-                        <CommandEmpty>계정을 찾을 수 없습니다.</CommandEmpty>
-                        <CommandGroup>
-                          {allAccounts.map((account) => (
-                            <CommandItem
-                              key={account}
-                              value={account}
-                              onSelect={(currentValue) => {
-                                setCreditAccount(currentValue === creditAccount ? "" : account);
-                                setOpenCredit(false);
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  creditAccount === account ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              {account}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>검색 결과</CardTitle>
-                <CardDescription>
-                  {debitAccount && creditAccount
-                    ? `차변: "${debitAccount}" / 대변: "${creditAccount}"`
-                    : '차변과 대변 계정을 선택해주세요'}
-                </CardDescription>
-              </div>
-              {debitAccount && creditAccount && dualClients.length > 0 && (
-                <Button variant="outline" size="sm" onClick={downloadExcel}>
-                  <Download className="mr-2 h-4 w-4" />
-                  엑셀 다운로드
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {debitAccount && creditAccount ? (
-              dualClients.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[60px]">번호</TableHead>
-                      <TableHead>거래처명</TableHead>
-                      <TableHead className="text-right">{debitAccount} 합계</TableHead>
-                      <TableHead className="text-right">{creditAccount} 합계</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {dualClients.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{index + 1}</TableCell>
-                        <TableCell className="font-medium">{item.client}</TableCell>
-                        <TableCell className="text-right">{item.debitAmount.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">{item.creditAmount.toLocaleString()}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-muted-foreground text-center py-8">
-                  선택한 두 계정에 공통으로 나타나는 거래처가 없습니다.
-                </p>
-              )
-            ) : (
-              <p className="text-muted-foreground text-center py-8">
-                차변과 대변 계정을 선택하면 결과가 표시됩니다.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </main>
+      )}
     </div>
   );
 };
-
-export default DualOffsetAnalysis;

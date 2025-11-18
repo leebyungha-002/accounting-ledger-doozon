@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { BenfordAnalysis } from '@/components/BenfordAnalysis';
+import { DualOffsetAnalysis } from './DualOffsetAnalysis';
+import { DuplicateVendorAnalysis } from './DuplicateVendorAnalysis';
 import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
 import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { addUsageRecord, getUsageSummary, clearUsageHistory, exportUsageToCSV, type UsageSummary } from '@/lib/usageTracker';
@@ -43,7 +45,7 @@ import {
 
 // Types
 type LedgerRow = { [key: string]: string | number | Date | undefined };
-type View = 'selection' | 'account_analysis' | 'general_ledger' | 'duplicate_vendor' | 'profit_loss' | 'monthly_trend' | 'previous_period' | 'transaction_search' | 'sampling' | 'fss_risk' | 'benford';
+type View = 'selection' | 'account_analysis' | 'offset_analysis' | 'general_ledger' | 'duplicate_vendor' | 'profit_loss' | 'monthly_trend' | 'previous_period' | 'transaction_search' | 'sampling' | 'fss_risk' | 'benford';
 type SamplingMethod = 'random' | 'systematic' | 'mus';
 
 // Helper functions
@@ -244,8 +246,9 @@ const AdvancedLedgerAnalysis = () => {
 
   const analysisOptions = [
     { id: 'account_analysis', title: '계정별원장 AI 분석', description: '특정 계정을 선택하여 AI에게 거래내역 요약, 특이사항 분석 등 자유로운 질문을 할 수 있습니다.', icon: FileText },
-    { id: 'general_ledger', title: '총계정원장 조회', description: '특정 계정의 월별 차변/대변 합계 및 잔액을 요약하고, 상세 거래내역을 조회합니다.', icon: FileSpreadsheet },
+    { id: 'offset_analysis', title: '외상매출/매입 상계 거래처 분석', description: '외상매출금(차변)과 외상매입금/미지급금(대변)에 동시에 나타나는 거래처를 찾아 상계 가능 여부를 분석합니다.', icon: Scale },
     { id: 'duplicate_vendor', title: '매입/매출 이중거래처 분석', description: '동일한 거래처가 매입과 매출 양쪽에서 동시에 발생하는 경우를 식별하여 잠재적 위험을 분석합니다.', icon: AlertTriangle },
+    { id: 'general_ledger', title: '총계정원장 조회', description: '특정 계정의 월별 차변/대변 합계 및 잔액을 요약하고, 상세 거래내역을 조회합니다.', icon: FileSpreadsheet },
     { id: 'profit_loss', title: '추정 손익 분석', description: '업로드된 계정별원장 전체를 바탕으로 매출과 비용 계정을 자동 분류하여 대략적인 손익을 계산합니다.', icon: TrendingUp },
     { id: 'monthly_trend', title: '매출/판관비 월별 추이 분석', description: '매출, 판관비, 제조원가 계정을 자동 분류하고 월별 추이를 시각화 및 AI 요약 리포트를 제공합니다.', icon: BarChart3 },
     { id: 'previous_period', title: '전기 데이터 비교 분석', description: '전기 계정별원장 데이터를 추가로 업로드하여, 계정별/월별 변동 현황을 비교 분석합니다.', icon: Scale },
@@ -653,6 +656,30 @@ const AdvancedLedgerAnalysis = () => {
   const renderAnalysisView = () => {
     const currentOption = analysisOptions.find(o => o.id === currentView);
     
+    // Offset Analysis
+    if (currentView === 'offset_analysis') {
+      if (!workbook) return null;
+      return (
+        <DualOffsetAnalysis 
+          workbook={workbook}
+          accountNames={accountNames}
+          onBack={() => setCurrentView('selection')}
+        />
+      );
+    }
+
+    // Duplicate Vendor Analysis
+    if (currentView === 'duplicate_vendor') {
+      if (!workbook) return null;
+      return (
+        <DuplicateVendorAnalysis 
+          workbook={workbook}
+          accountNames={accountNames}
+          onBack={() => setCurrentView('selection')}
+        />
+      );
+    }
+
     // Benford Analysis (Fully Implemented)
     if (currentView === 'benford') {
       return (
@@ -1019,6 +1046,159 @@ ${analysisQuestion}
       <main className="container mx-auto px-4 py-8">
         {!workbook || showPreviousDialog || showPreviousUpload ? renderUploadScreen() : currentView === 'selection' ? renderSelectionScreen() : renderAnalysisView()}
       </main>
+
+      {/* 사용 이력 Dialog */}
+      <Dialog open={showUsageDialog} onOpenChange={setShowUsageDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              AI 사용 이력 및 비용
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* 요약 통계 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs">총 누적 비용</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-primary">
+                    ₩{usageSummary.totalCost.toLocaleString()}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs">이번 달 비용</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                    ₩{usageSummary.thisMonthCost.toLocaleString()}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs">오늘 비용</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                    ₩{usageSummary.todayCost.toLocaleString()}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs">총 분석 횟수</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                    {usageSummary.totalAnalyses.toLocaleString()}회
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* 최근 이력 */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">최근 사용 이력 (최근 50건)</h3>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const csv = exportUsageToCSV();
+                      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = `AI사용이력_${new Date().toISOString().split('T')[0]}.csv`;
+                      link.click();
+                      URL.revokeObjectURL(url);
+                      toast({
+                        title: '다운로드 완료',
+                        description: 'CSV 파일로 저장했습니다.',
+                      });
+                    }}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    CSV 내보내기
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      if (confirm('모든 사용 이력을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
+                        clearUsageHistory();
+                        refreshUsageSummary();
+                        toast({
+                          title: '삭제 완료',
+                          description: '모든 사용 이력이 삭제되었습니다.',
+                        });
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    이력 삭제
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>날짜/시간</TableHead>
+                      <TableHead>계정과목</TableHead>
+                      <TableHead>분석유형</TableHead>
+                      <TableHead className="text-right">거래수</TableHead>
+                      <TableHead className="text-right">샘플</TableHead>
+                      <TableHead className="text-right">비율</TableHead>
+                      <TableHead className="text-right">비용</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {usageSummary.records.slice(0, 50).map((record) => (
+                      <TableRow key={record.id}>
+                        <TableCell className="text-xs">
+                          {new Date(record.timestamp).toLocaleString('ko-KR', {
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </TableCell>
+                        <TableCell className="font-medium text-sm">{record.accountName}</TableCell>
+                        <TableCell className="text-sm">{record.analysisType}</TableCell>
+                        <TableCell className="text-right text-sm">{record.totalCount.toLocaleString()}</TableCell>
+                        <TableCell className="text-right text-sm">{record.sampleSize.toLocaleString()}</TableCell>
+                        <TableCell className="text-right text-sm">{record.samplingRatio.toFixed(1)}%</TableCell>
+                        <TableCell className="text-right font-medium text-sm">
+                          ₩{record.costKRW.toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              
+              {usageSummary.records.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>아직 사용 이력이 없습니다.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* API Key 설정 Dialog */}
       <Dialog open={showApiKeyDialog} onOpenChange={setShowApiKeyDialog}>
