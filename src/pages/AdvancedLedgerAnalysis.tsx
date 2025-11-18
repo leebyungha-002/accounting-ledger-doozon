@@ -726,6 +726,147 @@ const AdvancedLedgerAnalysis = () => {
       );
     }
 
+    // General Ledger View
+    if (currentView === 'general_ledger') {
+      return (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-primary" />
+                <CardTitle>{currentOption?.title}</CardTitle>
+                <Badge>완성</Badge>
+              </div>
+              <Button variant="ghost" onClick={() => setCurrentView('selection')}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                뒤로가기
+              </Button>
+            </div>
+            <CardDescription>{currentOption?.description}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">계정과목</label>
+              <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {accountNames.map(name => (
+                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {selectedAccount && currentAccountData.length > 0 && (
+              <div className="space-y-4">
+                {/* 월별 요약 */}
+                <Card className="bg-muted/50">
+                  <CardHeader>
+                    <CardTitle className="text-base">월별 차변/대변 요약</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const headers = Object.keys(currentAccountData[0] || {});
+                      const dateHeader = headers.find(h => h.includes('일자') || h.includes('날짜'));
+                      const debitHeader = headers.find(h => h.includes('차변'));
+                      const creditHeader = headers.find(h => h.includes('대변'));
+                      
+                      if (!dateHeader || (!debitHeader && !creditHeader)) {
+                        return <p className="text-sm text-muted-foreground">월별 집계를 표시할 수 없습니다.</p>;
+                      }
+                      
+                      const monthlyData = new Map<string, { debit: number; credit: number }>();
+                      
+                      currentAccountData.forEach(row => {
+                        const date = row[dateHeader];
+                        if (!(date instanceof Date)) return;
+                        
+                        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                        const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
+                        const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
+                        
+                        if (!monthlyData.has(monthKey)) {
+                          monthlyData.set(monthKey, { debit: 0, credit: 0 });
+                        }
+                        
+                        const monthly = monthlyData.get(monthKey)!;
+                        monthly.debit += debit;
+                        monthly.credit += credit;
+                      });
+                      
+                      const sortedMonths = Array.from(monthlyData.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+                      let balance = 0;
+                      
+                      return (
+                        <div className="rounded-md border">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>월</TableHead>
+                                <TableHead className="text-right">차변</TableHead>
+                                <TableHead className="text-right">대변</TableHead>
+                                <TableHead className="text-right">잔액</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sortedMonths.map(([month, data]) => {
+                                balance += data.debit - data.credit;
+                                return (
+                                  <TableRow key={month}>
+                                    <TableCell className="font-medium">{month}</TableCell>
+                                    <TableCell className="text-right">{data.debit.toLocaleString()}</TableCell>
+                                    <TableCell className="text-right">{data.credit.toLocaleString()}</TableCell>
+                                    <TableCell className="text-right font-medium">{balance.toLocaleString()}</TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+                
+                {/* 상세 거래 내역 (최근 100건) */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">상세 거래 내역 (최근 100건)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="rounded-md border max-h-96 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            {Object.keys(currentAccountData[0] || {}).map(key => (
+                              <TableHead key={key}>{key}</TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {currentAccountData.slice(0, 100).map((row, idx) => (
+                            <TableRow key={idx}>
+                              {Object.values(row).map((val, j) => (
+                                <TableCell key={j} className="text-sm">
+                                  {val instanceof Date ? val.toLocaleDateString() : String(val ?? '')}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      );
+    }
+
     // Account Analysis (AI-powered)
     if (currentView === 'account_analysis') {
       return (
