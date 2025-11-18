@@ -15,6 +15,10 @@ import { BenfordAnalysis } from '@/components/BenfordAnalysis';
 import { DualOffsetAnalysis } from './DualOffsetAnalysis';
 import { DuplicateVendorAnalysis } from './DuplicateVendorAnalysis';
 import { MonthlyTrendAnalysis } from './MonthlyTrendAnalysis';
+import { ProfitLossAnalysis } from './ProfitLossAnalysis';
+import { SamplingAnalysis } from './SamplingAnalysis';
+import { PreviousPeriodComparison } from './PreviousPeriodComparison';
+import { TransactionSearch } from './TransactionSearch';
 import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
 import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { addUsageRecord, getUsageSummary, clearUsageHistory, exportUsageToCSV, type UsageSummary } from '@/lib/usageTracker';
@@ -686,6 +690,55 @@ const AdvancedLedgerAnalysis = () => {
       if (!workbook) return null;
       return (
         <MonthlyTrendAnalysis 
+          workbook={workbook}
+          accountNames={accountNames}
+          onBack={() => setCurrentView('selection')}
+        />
+      );
+    }
+
+    // Profit & Loss Analysis
+    if (currentView === 'profit_loss') {
+      if (!workbook) return null;
+      return (
+        <ProfitLossAnalysis 
+          workbook={workbook}
+          accountNames={accountNames}
+          onBack={() => setCurrentView('selection')}
+        />
+      );
+    }
+
+    // Sampling Analysis
+    if (currentView === 'sampling') {
+      if (!workbook) return null;
+      return (
+        <SamplingAnalysis 
+          workbook={workbook}
+          accountNames={accountNames}
+          onBack={() => setCurrentView('selection')}
+        />
+      );
+    }
+
+    // Previous Period Comparison
+    if (currentView === 'previous_period') {
+      if (!workbook) return null;
+      return (
+        <PreviousPeriodComparison 
+          currentWorkbook={workbook}
+          previousWorkbook={previousWorkbook}
+          currentAccounts={accountNames}
+          onBack={() => setCurrentView('selection')}
+        />
+      );
+    }
+
+    // Transaction Search
+    if (currentView === 'transaction_search') {
+      if (!workbook) return null;
+      return (
+        <TransactionSearch 
           workbook={workbook}
           accountNames={accountNames}
           onBack={() => setCurrentView('selection')}
