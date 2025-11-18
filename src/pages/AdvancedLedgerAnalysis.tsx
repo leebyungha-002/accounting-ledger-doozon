@@ -14,6 +14,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { BenfordAnalysis } from '@/components/BenfordAnalysis';
 import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
 import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
+import { addUsageRecord, getUsageSummary, clearUsageHistory, exportUsageToCSV, type UsageSummary } from '@/lib/usageTracker';
 import {
   FileSpreadsheet,
   Upload,
@@ -33,7 +34,11 @@ import {
   Key,
   Trash2,
   Info,
-  ArrowLeft
+  ArrowLeft,
+  TrendingUp as TrendingUpIcon,
+  DollarSign,
+  Calendar,
+  Activity
 } from 'lucide-react';
 
 // Types
@@ -227,6 +232,15 @@ const AdvancedLedgerAnalysis = () => {
     estimatedTokens: number;
     estimatedCost: number;
   } | null>(null);
+  
+  // Usage tracking states
+  const [usageSummary, setUsageSummary] = useState<UsageSummary>(getUsageSummary());
+  const [showUsageDialog, setShowUsageDialog] = useState<boolean>(false);
+  
+  // Refresh usage summary
+  const refreshUsageSummary = () => {
+    setUsageSummary(getUsageSummary());
+  };
 
   const analysisOptions = [
     { id: 'account_analysis', title: '계정별원장 AI 분석', description: '특정 계정을 선택하여 AI에게 거래내역 요약, 특이사항 분석 등 자유로운 질문을 할 수 있습니다.', icon: FileText },
@@ -851,9 +865,23 @@ ${analysisQuestion}
                   
                   setAnalysisResult(analysis);
                   
+                  // 7. 사용 이력 저장
+                  const actualCost = estimateCost(estimatedTokens, 2000, true);
+                  addUsageRecord({
+                    accountName: selectedAccount,
+                    analysisType: '계정별원장 AI 분석',
+                    totalCount,
+                    sampleSize: sampledData.length,
+                    samplingRatio: (sampledData.length / totalCount) * 100,
+                    tokensUsed: estimatedTokens + 2000, // 입력 + 출력 추정
+                    costKRW: actualCost,
+                    model: 'gemini-2.0-flash-exp',
+                  });
+                  refreshUsageSummary();
+                  
                   toast({
                     title: '분석 완료',
-                    description: `${sampledData.length}건의 샘플을 분석했습니다. (전체: ${totalCount}건)`,
+                    description: `${sampledData.length}건의 샘플을 분석했습니다. (비용: ₩${actualCost})`,
                   });
                 } catch (err: any) {
                   toast({
@@ -945,27 +973,45 @@ ${analysisQuestion}
               <FileSpreadsheet className="h-6 w-6 text-primary" />
               <h1 className="text-2xl font-bold">더존 계정별원장 분석</h1>
             </div>
-            <Button
-              variant={apiKeyExists ? "outline" : "default"}
-              size="sm"
-              onClick={() => {
-                setApiKeyInput(getApiKey() || '');
-                setShowApiKeyDialog(true);
-              }}
-              className="flex items-center gap-2"
-            >
-              {apiKeyExists ? (
-                <>
-                  <Key className="h-4 w-4" />
-                  API Key 설정됨
-                </>
-              ) : (
-                <>
-                  <Settings className="h-4 w-4" />
-                  API Key 설정
-                </>
+            <div className="flex items-center gap-2">
+              {/* 누적 비용 표시 */}
+              {usageSummary.totalAnalyses > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowUsageDialog(true)}
+                  className="flex items-center gap-2"
+                >
+                  <DollarSign className="h-4 w-4" />
+                  <div className="flex flex-col items-start">
+                    <span className="text-xs text-muted-foreground">이번 달</span>
+                    <span className="font-bold text-primary">₩{usageSummary.thisMonthCost.toLocaleString()}</span>
+                  </div>
+                </Button>
               )}
-            </Button>
+              
+              <Button
+                variant={apiKeyExists ? "outline" : "default"}
+                size="sm"
+                onClick={() => {
+                  setApiKeyInput(getApiKey() || '');
+                  setShowApiKeyDialog(true);
+                }}
+                className="flex items-center gap-2"
+              >
+                {apiKeyExists ? (
+                  <>
+                    <Key className="h-4 w-4" />
+                    API Key 설정됨
+                  </>
+                ) : (
+                  <>
+                    <Settings className="h-4 w-4" />
+                    API Key 설정
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </header>
