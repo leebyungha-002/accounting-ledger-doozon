@@ -855,6 +855,10 @@ const AdvancedLedgerAnalysis = () => {
                   <CardContent>
                     {(() => {
                       const headers = Object.keys(currentAccountData[0] || {});
+                      
+                      // 디버깅: 헤더 출력
+                      console.log('📊 총계정원장 헤더:', headers);
+                      
                       const dateHeader = headers.find(h => {
                         const clean = h.replace(/\s/g, '').toLowerCase();
                         return clean.includes('일자') || clean.includes('날짜') || clean.includes('date');
@@ -868,8 +872,22 @@ const AdvancedLedgerAnalysis = () => {
                         return clean.includes('대변') || clean.includes('credit');
                       });
                       
+                      console.log('📌 찾은 헤더:', { dateHeader, debitHeader, creditHeader });
+                      
                       if (!dateHeader || (!debitHeader && !creditHeader)) {
-                        return <p className="text-sm text-muted-foreground">월별 집계를 표시할 수 없습니다. (일자: {dateHeader || '없음'}, 차변: {debitHeader || '없음'}, 대변: {creditHeader || '없음'})</p>;
+                        return (
+                          <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground">
+                              월별 집계를 표시할 수 없습니다.
+                            </p>
+                            <div className="text-xs text-muted-foreground bg-yellow-50 dark:bg-yellow-950 p-2 rounded">
+                              <p>일자: {dateHeader || '❌ 없음'}</p>
+                              <p>차변: {debitHeader || '❌ 없음'}</p>
+                              <p>대변: {creditHeader || '❌ 없음'}</p>
+                              <p className="mt-2">전체 헤더: {headers.join(', ')}</p>
+                            </div>
+                          </div>
+                        );
                       }
                       
                       const monthlyData = new Map<string, { debit: number; credit: number }>();
