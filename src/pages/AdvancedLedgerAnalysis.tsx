@@ -811,18 +811,38 @@ const AdvancedLedgerAnalysis = () => {
             <CardDescription>{currentOption?.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">계정과목</label>
-              <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {accountNames.map(name => (
-                    <SelectItem key={name} value={name}>{name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex items-end gap-4">
+              <div className="flex-1 space-y-2">
+                <label className="text-sm font-medium">계정과목</label>
+                <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accountNames.map(name => (
+                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedAccount && currentAccountData.length > 0 && (
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    const wb = XLSX.utils.book_new();
+                    const ws = XLSX.utils.json_to_sheet(currentAccountData);
+                    XLSX.utils.book_append_sheet(wb, ws, selectedAccount);
+                    XLSX.writeFile(wb, `총계정원장_${selectedAccount}_${new Date().toISOString().split('T')[0]}.xlsx`);
+                    toast({
+                      title: '다운로드 완료',
+                      description: '총계정원장을 다운로드했습니다.',
+                    });
+                  }}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  엑셀 다운로드
+                </Button>
+              )}
             </div>
 
             {selectedAccount && currentAccountData.length > 0 && (
