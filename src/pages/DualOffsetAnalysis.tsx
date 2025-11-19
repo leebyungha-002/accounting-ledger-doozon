@@ -59,15 +59,23 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [offsetVendors, setOffsetVendors] = useState<OffsetVendor[]>([]);
 
-  // 외상매출금 차변, 외상매입금/미지급금 대변 찾기
+  // 외상매출금 차변, 외상매입금/미지급금/미지급비용 대변 찾기
   const relevantAccounts = useMemo(() => {
-    const debitAccounts = accountNames.filter(name => 
-      name.includes('외상매출') || name.includes('매출채권') || name.includes('받을')
-    );
+    // 차변 계정: 외상매출금만
+    const debitAccounts = accountNames.filter(name => {
+      const normalized = name.replace(/\s/g, '').toLowerCase();
+      return normalized.includes('외상매출금');
+    });
     
-    const creditAccounts = accountNames.filter(name => 
-      name.includes('외상매입') || name.includes('미지급') || name.includes('매입채무') || name.includes('지급')
-    );
+    // 대변 계정: 외상매입금, 미지급금, 미지급비용만
+    const creditAccounts = accountNames.filter(name => {
+      const normalized = name.replace(/\s/g, '').toLowerCase();
+      return (
+        normalized.includes('외상매입금') ||
+        normalized.includes('미지급금') ||
+        normalized.includes('미지급비용')
+      );
+    });
     
     return { debitAccounts, creditAccounts };
   }, [accountNames]);
@@ -185,7 +193,7 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
                 외상매출/매입 상계 거래처 분석
               </CardTitle>
               <CardDescription className="mt-2">
-                외상매출금(차변)과 외상매입금/미지급금(대변)에 동시에 나타나는 거래처를 찾아 상계 가능 여부를 분석합니다.
+                외상매출금(차변)과 외상매입금/미지급금/미지급비용(대변)에 동시에 나타나는 거래처를 찾아 유상사급거래가 있는 지 상계가능거래가 있는지 여부를 검토합니다.
               </CardDescription>
             </div>
             <Button variant="ghost" onClick={onBack}>
@@ -200,7 +208,7 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
               <p className="font-semibold text-blue-900 dark:text-blue-100">📊 분석 대상 계정</p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">차변 계정 (외상매출금 등):</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">차변 계정 (외상매출금):</p>
                   <div className="flex flex-wrap gap-1">
                     {relevantAccounts.debitAccounts.map(acc => (
                       <Badge key={acc} variant="outline" className="text-xs bg-green-100 dark:bg-green-900">
@@ -210,7 +218,7 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">대변 계정 (외상매입금/미지급금 등):</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">대변 계정 (외상매입금/미지급금/미지급비용):</p>
                   <div className="flex flex-wrap gap-1">
                     {relevantAccounts.creditAccounts.map(acc => (
                       <Badge key={acc} variant="outline" className="text-xs bg-orange-100 dark:bg-orange-900">

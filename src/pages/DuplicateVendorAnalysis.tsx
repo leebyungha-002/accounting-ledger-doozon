@@ -3,8 +3,10 @@ import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, ShoppingCart, DollarSign, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, DollarSign, AlertTriangle, ExternalLink, Download } from 'lucide-react';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -58,17 +60,47 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
   const { toast } = useToast();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [duplicateVendors, setDuplicateVendors] = useState<DuplicateVendor[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<{ accountName: string; vendorName: string; type: 'sales' | 'purchase' } | null>(null);
+  const [accountDetails, setAccountDetails] = useState<LedgerRow[]>([]);
 
   // 매출/매입 계정 찾기
   const relevantAccounts = useMemo(() => {
-    const salesAccounts = accountNames.filter(name => 
-      name.includes('매출') || name.includes('수익') || name.includes('판매')
-    );
+    // 대변 계정: '매출' 또는 '매출액'으로 끝나는 계정 (괄호 앞부분 확인)
+    const salesAccounts = accountNames.filter(name => {
+      // 괄호 앞부분만 추출 (예: "제품매출 (41110)" → "제품매출")
+      const nameWithoutCode = name.split(/[\(（]/)[0].trim();
+      const normalized = nameWithoutCode.replace(/\s/g, '').trim();
+      // '매출' 또는 '매출액'으로 끝나는지 확인
+      const matches = normalized.endsWith('매출') || normalized.endsWith('매출액');
+      if (matches) {
+        console.log(`✅ 매출 계정 발견: "${name}" (정리 후: "${normalized}")`);
+      }
+      return matches;
+    });
     
-    const purchaseAccounts = accountNames.filter(name => 
-      (name.includes('매입') || name.includes('구매') || name.includes('원재료')) &&
-      !name.includes('매입채무') && !name.includes('외상매입')
-    );
+    // 차변 계정: 계정명 뒤 ( )에 오는 숫자가 4xxxx, 5xxxx, 8xxxx로 시작하는 계정만
+    const purchaseAccounts = accountNames.filter(name => {
+      // 괄호 안의 숫자 추출 (예: "계정명 (41234)" 또는 "계정명(41234)")
+      const match = name.match(/[\(（]\s*([0-9]+)\s*[\)）]/);
+      if (!match || !match[1]) {
+        return false;
+      }
+      
+      const accountCode = match[1];
+      // 4xxxx, 5xxxx, 8xxxx로 시작하는지 확인
+      const matches = accountCode.startsWith('4') || accountCode.startsWith('5') || accountCode.startsWith('8');
+      if (matches) {
+        console.log(`✅ 매입 계정 발견: "${name}" (코드: ${accountCode})`);
+      }
+      return matches;
+    });
+    
+    // 디버깅: 필터링 결과 출력
+    console.log('📊 매출/매입 이중거래처 분석 - 필터링 결과:');
+    console.log(`  전체 계정 수: ${accountNames.length}`);
+    console.log(`  매출 계정 수: ${salesAccounts.length}`, salesAccounts);
+    console.log(`  매입 계정 수: ${purchaseAccounts.length}`, purchaseAccounts);
+    console.log(`  버튼 활성화 가능: ${salesAccounts.length > 0 && purchaseAccounts.length > 0}`);
     
     return { salesAccounts, purchaseAccounts };
   }, [accountNames]);
@@ -254,6 +286,25 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
             </Badge>
           </div>
           
+          {/* 검토 권장사항 - 상단에 한 번만 표시 */}
+          <Card className="bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
+                <div className="flex-1 space-y-2">
+                  <span className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                    검토 권장사항:
+                  </span>
+                  <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                    <li>• 특수관계자 여부 확인</li>
+                    <li>• 거래 목적 및 필요성 검토</li>
+                    <li>• 가격의 적정성 평가 (정상가격 유지 여부)</li>
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
           <div className="grid grid-cols-1 gap-4">
             {duplicateVendors.map((vendor, idx) => (
               <Card key={idx} className="hover:shadow-lg transition-shadow border-amber-200 dark:border-amber-800">
@@ -270,31 +321,29 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                 </CardHeader>
                 <CardContent className="pt-4">
                   <div className="grid grid-cols-2 gap-4">
-                    {/* 매출 (왼쪽) */}
-                    <div className="space-y-2 p-4 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
-                      <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                        <DollarSign className="h-4 w-4" />
-                        <span className="font-semibold text-sm">매출 (고객)</span>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="text-xs text-blue-600 dark:text-blue-400">{vendor.salesAccount}</div>
-                        <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
-                          ₩{vendor.salesAmount.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-blue-600 dark:text-blue-400">
-                          {vendor.salesTransactions.toLocaleString()}건
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* 매입 (오른쪽) */}
-                    <div className="space-y-2 p-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
+                    {/* 매입 (왼쪽) */}
+                    <div 
+                      className="space-y-2 p-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900 transition-colors"
+                      onClick={() => {
+                        const sheet = workbook.Sheets[vendor.purchaseAccount];
+                        const { data } = getDataFromSheet(sheet);
+                        const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
+                        if (vendorHeader) {
+                          const filteredData = data.filter(row => 
+                            String(row[vendorHeader] || '').trim() === vendor.vendorName
+                          );
+                          setAccountDetails(filteredData);
+                          setSelectedAccount({ accountName: vendor.purchaseAccount, vendorName: vendor.vendorName, type: 'purchase' });
+                        }
+                      }}
+                    >
                       <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
                         <ShoppingCart className="h-4 w-4" />
                         <span className="font-semibold text-sm">매입 (공급자)</span>
+                        <ExternalLink className="h-3 w-3 ml-auto" />
                       </div>
                       <div className="space-y-1">
-                        <div className="text-xs text-red-600 dark:text-red-400">{vendor.purchaseAccount}</div>
+                        <div className="text-xs text-red-600 dark:text-red-400 font-medium hover:underline">{vendor.purchaseAccount}</div>
                         <div className="text-2xl font-bold text-red-900 dark:text-red-100">
                           ₩{vendor.purchaseAmount.toLocaleString()}
                         </div>
@@ -303,21 +352,36 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                         </div>
                       </div>
                     </div>
-                  </div>
-                  
-                  {/* 위험도 평가 */}
-                  <div className="mt-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
-                      <div className="flex-1 space-y-1">
-                        <span className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                          검토 권장사항:
-                        </span>
-                        <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-0.5">
-                          <li>• 특수관계자 여부 확인</li>
-                          <li>• 거래 목적 및 필요성 검토</li>
-                          <li>• 가격의 적정성 평가 (정상가격 유지 여부)</li>
-                        </ul>
+                    
+                    {/* 매출 (오른쪽) */}
+                    <div 
+                      className="space-y-2 p-4 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
+                      onClick={() => {
+                        const sheet = workbook.Sheets[vendor.salesAccount];
+                        const { data } = getDataFromSheet(sheet);
+                        const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
+                        if (vendorHeader) {
+                          const filteredData = data.filter(row => 
+                            String(row[vendorHeader] || '').trim() === vendor.vendorName
+                          );
+                          setAccountDetails(filteredData);
+                          setSelectedAccount({ accountName: vendor.salesAccount, vendorName: vendor.vendorName, type: 'sales' });
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                        <DollarSign className="h-4 w-4" />
+                        <span className="font-semibold text-sm">매출 (고객)</span>
+                        <ExternalLink className="h-3 w-3 ml-auto" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline">{vendor.salesAccount}</div>
+                        <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                          ₩{vendor.salesAmount.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-blue-600 dark:text-blue-400">
+                          {vendor.salesTransactions.toLocaleString()}건
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -327,6 +391,102 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
           </div>
         </div>
       )}
+
+      {/* 계정별원장 상세내역 Dialog */}
+      <Dialog open={selectedAccount !== null} onOpenChange={(open) => !open && setSelectedAccount(null)}>
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>
+                  {selectedAccount?.type === 'sales' ? '매출' : '매입'} 계정별원장 상세내역 - {selectedAccount?.accountName}
+                </DialogTitle>
+                <div className="text-sm text-muted-foreground mt-1">
+                  거래처: {selectedAccount?.vendorName}
+                </div>
+              </div>
+              {accountDetails.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    try {
+                      const wb = XLSX.utils.book_new();
+                      
+                      // 데이터 준비
+                      const exportData = accountDetails.map(row => {
+                        const obj: { [key: string]: any } = {};
+                        Object.keys(row).forEach(key => {
+                          const val = row[key];
+                          if (val instanceof Date) {
+                            obj[key] = val.toLocaleDateString('ko-KR');
+                          } else {
+                            obj[key] = val ?? '';
+                          }
+                        });
+                        return obj;
+                      });
+                      
+                      const ws = XLSX.utils.json_to_sheet(exportData);
+                      XLSX.utils.book_append_sheet(wb, ws, '상세내역');
+                      
+                      // 파일명 생성
+                      const accountType = selectedAccount?.type === 'sales' ? '매출' : '매입';
+                      const fileName = `${accountType}_${selectedAccount?.accountName}_${selectedAccount?.vendorName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                      
+                      XLSX.writeFile(wb, fileName);
+                      
+                      toast({
+                        title: '다운로드 완료',
+                        description: '엑셀 파일로 저장했습니다.',
+                      });
+                    } catch (err: any) {
+                      toast({
+                        title: '오류',
+                        description: `다운로드 중 오류: ${err.message}`,
+                        variant: 'destructive',
+                      });
+                    }
+                  }}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  엑셀 다운로드
+                </Button>
+              )}
+            </div>
+          </DialogHeader>
+          <div className="mt-4">
+            {accountDetails.length > 0 ? (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {Object.keys(accountDetails[0] || {}).map(key => (
+                        <TableHead key={key}>{key}</TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {accountDetails.map((row, idx) => (
+                      <TableRow key={idx}>
+                        {Object.values(row).map((val, j) => (
+                          <TableCell key={j} className="text-sm">
+                            {val instanceof Date ? val.toLocaleDateString() : String(val ?? '')}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                상세내역이 없습니다.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

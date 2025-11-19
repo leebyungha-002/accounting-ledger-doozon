@@ -20,7 +20,7 @@ import { SamplingAnalysis } from './SamplingAnalysis';
 import { PreviousPeriodComparison } from './PreviousPeriodComparison';
 import { TransactionSearch } from './TransactionSearch';
 import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
-import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
+import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost, testApiKey } from '@/lib/geminiClient';
 import { addUsageRecord, getUsageSummary, clearUsageHistory, exportUsageToCSV, type UsageSummary } from '@/lib/usageTracker';
 import {
   FileSpreadsheet,
@@ -58,14 +58,27 @@ const normalizeAccountName = (name: string): string => {
   return (name || "").replace(/^\d+[_.-]?\s*/, '');
 };
 
-const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => 
-  headers.find(h => {
+const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => {
+  // 먼저 정확히 일치하는 헤더를 찾기
+  for (const h of headers) {
+    const cleanedHeader = (h || "").toLowerCase().replace(/\s/g, '').replace(/^\d+[_.-]?/, '');
+    for (const kw of keywords) {
+      const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
+      // 정확히 일치하는 경우 우선 반환
+      if (cleanedHeader === cleanedKw) {
+        return h;
+      }
+    }
+  }
+  // 정확히 일치하는 것이 없으면 포함하는 경우 찾기
+  return headers.find(h => {
     const cleanedHeader = (h || "").toLowerCase().replace(/\s/g, '').replace(/^\d+[_.-]?/, '');
     return keywords.some(kw => {
       const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
       return cleanedHeader.includes(cleanedKw);
     });
   });
+};
 
 const parseDate = (value: any): Date | null => {
   if (value instanceof Date && !isNaN(value.getTime())) {
@@ -102,7 +115,7 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
   let headerIndex = -1;
   const searchLimit = Math.min(20, sheetDataAsArrays.length);
   const dateKeywords = ['일자', '날짜', '거래일', 'date'];
-  const otherHeaderKeywords = ['적요', '거래처', '차변', '대변', '금액', '코드', '내용', '비고'];
+  const otherHeaderKeywords = ['적요', '거래처', '차변', '대변', '잔액', '금액', '코드', '내용', '비고'];
 
   for (let i = 0; i < searchLimit; i++) {
     const potentialHeaderRow = sheetDataAsArrays[i];
@@ -157,9 +170,44 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
 
   if (headerIndex === -1) return { data: [], headers: [], orderedHeaders: [] };
 
-  const rawData = XLSX.utils.sheet_to_json<LedgerRow>(worksheet, { range: headerIndex });
-  const headers = rawData.length > 0 ? Object.keys(rawData[0]) : [];
+  // 디버깅: 헤더 행 출력
+  console.log(`🔍 헤더 행 인덱스: ${headerIndex}`);
+  console.log(`🔍 헤더 행 내용 (원본):`, sheetDataAsArrays[headerIndex]);
+  
+  // 원본 Excel 헤더 행을 그대로 사용 (모든 컬럼 포함)
   const orderedHeaders = (sheetDataAsArrays[headerIndex] || []).map(h => String(h || '').trim());
+  console.log(`🔍 원본 orderedHeaders (모든 컬럼):`, orderedHeaders);
+  console.log(`🔍 orderedHeaders 길이: ${orderedHeaders.length}`);
+  console.log(`🔍 orderedHeaders 상세:`, orderedHeaders.map((h, i) => `${i}: "${h}"`));
+  
+  // 헤더 행 다음부터 데이터 시작
+  const rawDataArray = sheetDataAsArrays.slice(headerIndex + 1).filter(row => {
+    // 빈 행 제거
+    return row && row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== '');
+  });
+  
+  // 수동으로 데이터 객체 생성 (orderedHeaders의 모든 컬럼 포함)
+  const rawData: LedgerRow[] = rawDataArray.map(row => {
+    const obj: LedgerRow = {};
+    orderedHeaders.forEach((header, index) => {
+      // 헤더가 있으면 해당 인덱스의 데이터를 사용 (빈 값도 포함)
+      if (header && header.trim() !== '') {
+        obj[header] = row[index] !== null && row[index] !== undefined ? row[index] : '';
+      }
+    });
+    return obj;
+  });
+  
+  const headers = rawData.length > 0 ? Object.keys(rawData[0]) : [];
+  
+  // 디버깅: 파싱 결과 출력
+  console.log(`🔍 파싱된 headers (Object.keys):`, headers);
+  console.log(`🔍 headers 길이: ${headers.length}`);
+  console.log(`🔍 headers와 orderedHeaders 비교:`, {
+    orderedHeadersCount: orderedHeaders.filter(h => h && h.trim() !== '').length,
+    headersCount: headers.length,
+    missing: orderedHeaders.filter(h => h && h.trim() !== '' && !headers.includes(h))
+  });
 
   // 필터링: 합계행, 빈행, 헤더 중복 제거 (기존 데이터에 영향 없음)
   const data = rawData.filter(row => {
@@ -616,8 +664,22 @@ const AdvancedLedgerAnalysis = () => {
   const currentAccountData = useMemo(() => {
     if (!workbook || !selectedAccount) return [];
     const worksheet = workbook.Sheets[selectedAccount];
-    const { data } = getDataFromSheet(worksheet);
+    const { data, orderedHeaders } = getDataFromSheet(worksheet);
+    // orderedHeaders를 데이터에 메타데이터로 저장
+    if (data.length > 0 && orderedHeaders.length > 0) {
+      // 디버깅: 원본 헤더 출력
+      console.log('📋 원본 Excel 헤더 (orderedHeaders):', orderedHeaders);
+      console.log('📋 파싱된 헤더 (Object.keys):', Object.keys(data[0] || {}));
+    }
     return data;
+  }, [workbook, selectedAccount]);
+
+  // orderedHeaders를 별도로 저장
+  const currentOrderedHeaders = useMemo(() => {
+    if (!workbook || !selectedAccount) return [];
+    const worksheet = workbook.Sheets[selectedAccount];
+    const { orderedHeaders } = getDataFromSheet(worksheet);
+    return orderedHeaders;
   }, [workbook, selectedAccount]);
 
   const amountColumns = useMemo(() => {
@@ -854,25 +916,40 @@ const AdvancedLedgerAnalysis = () => {
                   </CardHeader>
                   <CardContent>
                     {(() => {
-                      const headers = Object.keys(currentAccountData[0] || {});
+                      // 원본 헤더(orderedHeaders)를 우선 사용, 없으면 Object.keys 사용
+                      const headers = currentOrderedHeaders.length > 0 ? currentOrderedHeaders : Object.keys(currentAccountData[0] || {});
                       
-                      // 디버깅: 헤더 출력
-                      console.log('📊 총계정원장 헤더:', headers);
+                      // 디버깅: 헤더 출력 (상세)
+                      console.log('📊 총계정원장 헤더 (원본 orderedHeaders):', currentOrderedHeaders);
+                      console.log('📊 총계정원장 헤더 (사용할 헤더):', headers);
+                      console.log('📊 총계정원장 헤더 (상세):', headers.map((h, i) => `${i}: "${h}" (길이: ${h?.length || 0})`));
                       
-                      const dateHeader = headers.find(h => {
-                        const clean = h.replace(/\s/g, '').toLowerCase();
-                        return clean.includes('일자') || clean.includes('날짜') || clean.includes('date');
-                      });
-                      const debitHeader = headers.find(h => {
-                        const clean = h.replace(/\s/g, '').toLowerCase();
-                        return clean.includes('차변') || clean.includes('debit');
-                      });
-                      const creditHeader = headers.find(h => {
-                        const clean = h.replace(/\s/g, '').toLowerCase();
-                        return clean.includes('대변') || clean.includes('credit');
+                      // robustFindHeader 함수를 사용하여 더 강력한 헤더 찾기
+                      const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date', '일  자', '거래일자']);
+                      const debitHeader = robustFindHeader(headers, ['차변', 'debit', '차  변']);
+                      const creditHeader = robustFindHeader(headers, ['대변', 'credit', '대  변']);
+                      const balanceHeader = robustFindHeader(headers, ['잔액', 'balance', '잔  액']);
+                      
+                      console.log('📌 찾은 헤더:', { 
+                        dateHeader: dateHeader || '❌ 없음', 
+                        debitHeader: debitHeader || '❌ 없음', 
+                        creditHeader: creditHeader || '❌ 없음',
+                        balanceHeader: balanceHeader || '❌ 없음'
                       });
                       
-                      console.log('📌 찾은 헤더:', { dateHeader, debitHeader, creditHeader });
+                      // 각 헤더의 정확한 내용 확인
+                      headers.forEach(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        if (clean.includes('차변') || clean.includes('debit')) {
+                          console.log(`🔍 차변 후보 발견: "${h}" (정리 후: "${clean}")`);
+                        }
+                        if (clean.includes('대변') || clean.includes('credit')) {
+                          console.log(`🔍 대변 후보 발견: "${h}" (정리 후: "${clean}")`);
+                        }
+                        if (clean.includes('잔액') || clean.includes('balance')) {
+                          console.log(`🔍 잔액 후보 발견: "${h}" (정리 후: "${clean}")`);
+                        }
+                      });
                       
                       if (!dateHeader || (!debitHeader && !creditHeader)) {
                         return (
@@ -1527,7 +1604,7 @@ ${analysisQuestion}
                 취소
               </Button>
               <Button
-                onClick={() => {
+                onClick={async () => {
                   if (!apiKeyInput.trim()) {
                     toast({
                       title: '오류',
@@ -1536,18 +1613,66 @@ ${analysisQuestion}
                     });
                     return;
                   }
-                  saveApiKey(apiKeyInput.trim());
-                  setApiKeyExists(true);
-                  setShowApiKeyDialog(false);
+                  const trimmedKey = apiKeyInput.trim();
+                  if (trimmedKey.length < 30) {
+                    toast({
+                      title: '경고',
+                      description: 'API Key가 너무 짧습니다. 전체 API Key를 복사했는지 확인하세요.',
+                      variant: 'destructive',
+                    });
+                    return;
+                  }
+                  
+                  // API Key 형식 검증
+                  if (!trimmedKey.startsWith('AIza')) {
+                    toast({
+                      title: '경고',
+                      description: 'API Key가 "AIza"로 시작하지 않습니다. Google AI Studio에서 발급한 API Key인지 확인하세요.',
+                      variant: 'destructive',
+                    });
+                    // 경고만 표시하고 계속 진행 (사용자가 확인할 수 있도록)
+                  }
+                  
+                  // API Key 테스트
                   toast({
-                    title: '성공',
-                    description: 'API Key가 저장되었습니다. 이제 AI 분석을 사용할 수 있습니다.',
+                    title: '테스트 중',
+                    description: 'API Key 유효성을 확인하는 중입니다...',
                   });
+                  
+                  try {
+                    const testResult = await testApiKey(trimmedKey);
+                    if (testResult.valid) {
+                      saveApiKey(trimmedKey);
+                      setApiKeyExists(true);
+                      setShowApiKeyDialog(false);
+                      toast({
+                        title: '성공',
+                        description: 'API Key가 유효하며 저장되었습니다. 이제 AI 분석을 사용할 수 있습니다.',
+                      });
+                    } else {
+                      toast({
+                        title: 'API Key 테스트 실패',
+                        description: testResult.message + '\n\nAPI Key를 확인하고 다시 시도해주세요.',
+                        variant: 'destructive',
+                      });
+                    }
+                  } catch (error: any) {
+                    console.error('API Key 테스트 오류:', error);
+                    // 테스트 실패해도 저장은 진행 (네트워크 문제일 수 있음)
+                    saveApiKey(trimmedKey);
+                    setApiKeyExists(true);
+                    setShowApiKeyDialog(false);
+                    toast({
+                      title: '저장 완료 (테스트 실패)',
+                      description: 'API Key가 저장되었지만 테스트에 실패했습니다. 네트워크 문제일 수 있으니 AI 분석 시도 시 확인해주세요.',
+                      variant: 'default',
+                    });
+                  }
                 }}
                 className="flex-1"
                 disabled={!apiKeyInput.trim()}
               >
-                저장
+                저장 및 테스트
               </Button>
             </div>
           </div>
