@@ -855,12 +855,21 @@ const AdvancedLedgerAnalysis = () => {
                   <CardContent>
                     {(() => {
                       const headers = Object.keys(currentAccountData[0] || {});
-                      const dateHeader = headers.find(h => h.includes('일자') || h.includes('날짜'));
-                      const debitHeader = headers.find(h => h.includes('차변'));
-                      const creditHeader = headers.find(h => h.includes('대변'));
+                      const dateHeader = headers.find(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        return clean.includes('일자') || clean.includes('날짜') || clean.includes('date');
+                      });
+                      const debitHeader = headers.find(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        return clean.includes('차변') || clean.includes('debit');
+                      });
+                      const creditHeader = headers.find(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        return clean.includes('대변') || clean.includes('credit');
+                      });
                       
                       if (!dateHeader || (!debitHeader && !creditHeader)) {
-                        return <p className="text-sm text-muted-foreground">월별 집계를 표시할 수 없습니다.</p>;
+                        return <p className="text-sm text-muted-foreground">월별 집계를 표시할 수 없습니다. (일자: {dateHeader || '없음'}, 차변: {debitHeader || '없음'}, 대변: {creditHeader || '없음'})</p>;
                       }
                       
                       const monthlyData = new Map<string, { debit: number; credit: number }>();
