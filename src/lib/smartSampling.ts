@@ -458,19 +458,46 @@ ${analysisPeriod ? `분석 기간: ${analysisPeriod}` : ''}
       }
     }
     
+    // 차변과 대변 총액 계산 (별도)
+    let debitTotalAmount = 0;
+    let creditTotalAmount = 0;
+    
+    if (debitHeader) {
+      data.forEach(row => {
+        const val = row[debitHeader];
+        debitTotalAmount += Math.abs(cleanAmount(val));
+      });
+    }
+    
+    if (creditHeader) {
+      data.forEach(row => {
+        const val = row[creditHeader];
+        creditTotalAmount += Math.abs(cleanAmount(val));
+      });
+    }
+    
     return `
 계정과목: ${accountName}
 ${analysisPeriod ? `분석 기간: ${analysisPeriod}` : ''}
 총 거래 수: ${data.length.toLocaleString()}건
+
 ${debitStats}
 ${creditStats}
-전체 통계 (차변+대변 합계):
-- 총 금액: ${total.toLocaleString()}원
+
+전체 요약:
+- 차변 총액: ${debitTotalAmount.toLocaleString()}원 (약 ${(debitTotalAmount / 100000000).toFixed(2)}억원)
+- 대변 총액: ${creditTotalAmount.toLocaleString()}원 (약 ${(creditTotalAmount / 100000000).toFixed(2)}억원)
+- 차변+대변 합계: ${(debitTotalAmount + creditTotalAmount).toLocaleString()}원 (약 ${((debitTotalAmount + creditTotalAmount) / 100000000).toFixed(2)}억원)
+- 순잔액: ${(debitTotalAmount - creditTotalAmount).toLocaleString()}원
+
+전체 통계 (개별 거래 금액 기준):
 - 평균 거래액: ${Math.round(mean).toLocaleString()}원
 - 중앙값: ${Math.round(median).toLocaleString()}원
 - 최소값: ${Math.round(min).toLocaleString()}원
 - 최대값: ${Math.round(max).toLocaleString()}원
 - 표준편차: ${Math.round(stdDev).toLocaleString()}원
+
+중요: 차변 총액과 대변 총액은 각각의 컬럼 합계입니다. 차변+대변 합계는 두 컬럼의 합계이며, 이는 전체 자금 흐름의 규모를 나타냅니다. 금액 단위를 정확하게 해석해주세요 (예: 14,491,131,589원 = 약 144.91억원, 29조가 아님).
 `.trim();
   }
   

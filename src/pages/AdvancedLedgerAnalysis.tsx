@@ -1639,49 +1639,54 @@ const AdvancedLedgerAnalysis = () => {
     // Account Analysis (AI-powered)
     if (currentView === 'account_analysis') {
       return (
-        <Card>
-          <CardHeader>
+        <Card className="bg-gradient-to-br from-pink-50/30 via-purple-50/30 to-blue-50/30 dark:from-pink-950/10 dark:via-purple-950/10 dark:to-blue-950/10 border-2 border-pink-200/30 dark:border-pink-800/30 shadow-lg">
+          <CardHeader className="bg-gradient-to-r from-pink-100/50 via-purple-100/50 to-blue-100/50 dark:from-pink-900/20 dark:via-purple-900/20 dark:to-blue-900/20 rounded-t-lg">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" />
-                <CardTitle>{currentOption?.title}</CardTitle>
-                <Badge>완성</Badge>
+                <Sparkles className="h-5 w-5 text-pink-600 dark:text-pink-400" />
+                <CardTitle className="text-gray-800 dark:text-gray-200">{currentOption?.title}</CardTitle>
+                <Badge className="bg-pink-200/60 text-pink-800 dark:bg-pink-800/60 dark:text-pink-200">완성</Badge>
               </div>
-              <Button variant="ghost" onClick={() => setCurrentView('selection')}>
+              <Button 
+                variant="ghost" 
+                onClick={() => setCurrentView('selection')}
+                className="hover:bg-white/60 dark:hover:bg-gray-800/60"
+              >
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 뒤로가기
               </Button>
             </div>
-            <CardDescription>{currentOption?.description}</CardDescription>
+            <CardDescription className="text-gray-600 dark:text-gray-400">{currentOption?.description}</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium">계정과목</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">계정과목</label>
               <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-                <SelectTrigger>
+                <SelectTrigger className="bg-white/80 dark:bg-gray-800/80 border-pink-200 dark:border-pink-800 focus:border-pink-400 dark:focus:border-pink-600">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-white/95 dark:bg-gray-800/95">
                   {accountNames.map(name => (
-                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                    <SelectItem key={name} value={name} className="hover:bg-pink-50 dark:hover:bg-pink-900/30">{name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">질문 내용</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">질문 내용</label>
               <Textarea 
                 value={analysisQuestion}
                 onChange={(e) => setAnalysisQuestion(e.target.value)}
                 rows={4}
                 placeholder="이 계정의 거래 내역을 요약하고, 특이사항이 있다면 알려주세요."
+                className="bg-white/80 dark:bg-gray-800/80 border-pink-200 dark:border-pink-800 focus:border-pink-400 dark:focus:border-pink-600"
               />
             </div>
 
             {/* 예상 비용 정보 */}
             {estimatedCostInfo && (
-              <Card className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950 dark:to-purple-950 border-blue-200 dark:border-blue-800">
+              <Card className="bg-gradient-to-r from-cyan-50/60 to-teal-50/60 dark:from-cyan-950/30 dark:to-teal-950/30 border-cyan-200/50 dark:border-cyan-800/50">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Info className="h-4 w-4" />
@@ -1810,6 +1815,11 @@ ${analysisQuestion}
 - 특이사항, 패턴, 위험 요소가 있다면 구체적으로 지적해주세요.
 - 한국어로 답변하고, 마크다운 형식으로 작성해주세요.
 - 금액은 천 단위 구분 기호(,)를 사용해주세요.
+- **매우 중요**: 금액을 해석할 때 정확한 단위를 사용해주세요. 
+  - 예: 14,491,131,589원 = 약 144.91억원 (약 14.5억원이 아님, 29조가 아님)
+  - 1억원 = 100,000,000원
+  - 1조원 = 1,000,000,000,000원
+  - 통계 정보에 표시된 "약 X억원" 형식을 참고하여 정확한 금액 단위를 사용해주세요.
 `;
                   
                   // 5. 토큰 및 비용 추정
@@ -1856,7 +1866,7 @@ ${analysisQuestion}
                 }
               }}
               disabled={isLoading || !selectedAccount}
-              className="w-full"
+              className="w-full bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50"
             >
               {isLoading ? (
                 <>
@@ -1872,12 +1882,146 @@ ${analysisQuestion}
             </Button>
 
             {analysisResult && (
-              <Card className="bg-muted/50">
-                <CardHeader>
-                  <CardTitle className="text-lg">AI 분석 결과</CardTitle>
+              <Card className="bg-gradient-to-br from-pink-50/50 via-purple-50/50 to-blue-50/50 dark:from-pink-950/20 dark:via-purple-950/20 dark:to-blue-950/20 border-2 border-pink-200/50 dark:border-pink-800/50">
+                <CardHeader className="bg-gradient-to-r from-pink-100/50 to-purple-100/50 dark:from-pink-900/30 dark:to-purple-900/30 rounded-t-lg">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-pink-600 dark:text-pink-400" />
+                      AI 분석 결과
+                    </CardTitle>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        try {
+                          // 마크다운을 파싱하여 엑셀 형식으로 변환
+                          const sections = analysisResult.split(/^###\s+/m).filter(s => s.trim());
+                          const wb = XLSX.utils.book_new();
+                          
+                          // 각 섹션을 시트로 추가
+                          sections.forEach((section, index) => {
+                            const lines = section.split('\n').filter(l => l.trim());
+                            if (lines.length === 0) return;
+                            
+                            const title = lines[0].trim();
+                            const content = lines.slice(1).join('\n');
+                            
+                            // 섹션 제목과 내용을 데이터로 변환
+                            const data = [
+                              [title],
+                              [],
+                              ...content.split('\n').map(line => [line.trim()])
+                            ];
+                            
+                            const ws = XLSX.utils.aoa_to_sheet(data);
+                            XLSX.utils.book_append_sheet(wb, ws, `섹션${index + 1}`);
+                          });
+                          
+                          // 전체 내용도 하나의 시트로 추가
+                          const fullData = analysisResult.split('\n').map(line => [line]);
+                          const fullWs = XLSX.utils.aoa_to_sheet(fullData);
+                          XLSX.utils.book_append_sheet(wb, fullWs, '전체내용');
+                          
+                          const fileName = `AI분석_${selectedAccount}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                          XLSX.writeFile(wb, fileName);
+                          
+                          toast({
+                            title: '다운로드 완료',
+                            description: `${fileName} 파일이 다운로드되었습니다.`,
+                          });
+                        } catch (err: any) {
+                          toast({
+                            title: '오류',
+                            description: err.message || '다운로드 중 오류가 발생했습니다.',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      className="bg-white/80 hover:bg-white dark:bg-gray-800/80 dark:hover:bg-gray-800"
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      엑셀 다운로드
+                    </Button>
+                  </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="whitespace-pre-wrap text-sm">{analysisResult}</div>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    {(() => {
+                      // 마크다운을 파싱하여 섹션별로 박스 생성
+                      const sections = analysisResult.split(/^###\s+/m).filter(s => s.trim());
+                      const colors = [
+                        'from-pink-100/60 to-rose-100/60 dark:from-pink-900/20 dark:to-rose-900/20 border-pink-300/50 dark:border-pink-700/50',
+                        'from-purple-100/60 to-violet-100/60 dark:from-purple-900/20 dark:to-violet-900/20 border-purple-300/50 dark:border-purple-700/50',
+                        'from-blue-100/60 to-cyan-100/60 dark:from-blue-900/20 dark:to-cyan-900/20 border-blue-300/50 dark:border-blue-700/50',
+                        'from-teal-100/60 to-emerald-100/60 dark:from-teal-900/20 dark:to-emerald-900/20 border-teal-300/50 dark:border-teal-700/50',
+                        'from-amber-100/60 to-yellow-100/60 dark:from-amber-900/20 dark:to-yellow-900/20 border-amber-300/50 dark:border-amber-700/50',
+                        'from-indigo-100/60 to-blue-100/60 dark:from-indigo-900/20 dark:to-blue-900/20 border-indigo-300/50 dark:border-indigo-700/50',
+                      ];
+                      
+                      return sections.map((section, index) => {
+                        const lines = section.split('\n').filter(l => l.trim());
+                        if (lines.length === 0) return null;
+                        
+                        const title = lines[0].trim();
+                        const content = lines.slice(1).join('\n');
+                        const colorClass = colors[index % colors.length];
+                        
+                        return (
+                          <div
+                            key={index}
+                            className={`rounded-lg border-2 p-4 bg-gradient-to-br ${colorClass} shadow-sm hover:shadow-md transition-shadow`}
+                          >
+                            <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-white/60 dark:bg-gray-800/60 text-sm font-bold">
+                                {index + 1}
+                              </span>
+                              {title}
+                            </h3>
+                            <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed pl-10">
+                              {content.split('\n').map((line, lineIndex) => {
+                                // 리스트 항목 처리
+                                if (line.trim().startsWith('-') || line.trim().startsWith('*') || /^\d+\./.test(line.trim())) {
+                                  return (
+                                    <div key={lineIndex} className="ml-4 mb-1 flex items-start">
+                                      <span className="mr-2 text-pink-500 dark:text-pink-400">•</span>
+                                      <span>{line.trim().replace(/^[-*]\s*/, '').replace(/^\d+\.\s*/, '')}</span>
+                                    </div>
+                                  );
+                                }
+                                // 볼드 텍스트 처리
+                                if (line.includes('**')) {
+                                  const parts = line.split(/(\*\*.*?\*\*)/g);
+                                  return (
+                                    <div key={lineIndex} className="mb-2">
+                                      {parts.map((part, partIndex) => {
+                                        if (part.startsWith('**') && part.endsWith('**')) {
+                                          return (
+                                            <strong key={partIndex} className="text-gray-900 dark:text-gray-100 font-semibold">
+                                              {part.slice(2, -2)}
+                                            </strong>
+                                          );
+                                        }
+                                        return <span key={partIndex}>{part}</span>;
+                                      })}
+                                    </div>
+                                  );
+                                }
+                                // 빈 줄
+                                if (line.trim() === '') {
+                                  return <div key={lineIndex} className="h-2" />;
+                                }
+                                return (
+                                  <div key={lineIndex} className="mb-2">
+                                    {line}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
                 </CardContent>
               </Card>
             )}
