@@ -170,6 +170,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
   // Cost Tracking State
   const [totalCost, setTotalCost] = useState<number>(0);
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
+  const [estimatedTime, setEstimatedTime] = useState<number | null>(null); // 예상 시간 (초)
   
   // API 요청 빈도 제한을 위한 상태
   const lastApiRequestTimeRef = useRef<number>(0);
@@ -844,7 +845,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
     setGeneralDrilldownType(null);
     setAccountDrilldownType(null);
     setHolidayDrilldown(null);
-    setEstimatedCost(null); 
+    setEstimatedCost(null);
+    setEstimatedTime(null);
     
     if (type === 'counter') {
       setCounterSearchTerm('');
@@ -862,6 +864,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
     setAccountDrilldownType(null);
     setHolidayDrilldown(null);
     setEstimatedCost(null);
+    setEstimatedTime(null);
   };
 
   const calculateEstimate = (type: AnalysisType): number => {
@@ -897,6 +900,42 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
     const cost = Number(totalKRW.toFixed(2));
     setEstimatedCost(cost);
     return cost;
+  };
+
+  // 적합성 분석 예상 시간 계산
+  const calculateEstimatedTime = (): number => {
+    const filteredEntries = analysisEntries.filter(e => 
+      e.debit >= appropriatenessMinAmount && e.description && e.description.length > 1
+    );
+    
+    if (filteredEntries.length === 0) {
+      return 0;
+    }
+    
+    // 계정과목별 그룹화
+    const accountGroups = new Map<string, JournalEntry[]>();
+    filteredEntries.forEach(e => {
+      if (!accountGroups.has(e.accountName)) {
+        accountGroups.set(e.accountName, []);
+      }
+      accountGroups.get(e.accountName)!.push(e);
+    });
+    
+    const accountCount = accountGroups.size;
+    const totalEntries = filteredEntries.length;
+    
+    // 예상 시간 계산 (초)
+    // 기본 처리 시간: 10초
+    // 계정과목 수에 따른 추가 시간: 계정당 약 0.5초
+    // 데이터 건수에 따른 추가 시간: 1000건당 약 2초
+    const baseTime = 10;
+    const accountTime = accountCount * 0.5;
+    const dataTime = Math.ceil(totalEntries / 1000) * 2;
+    
+    // 최소 15초, 최대 120초
+    const estimatedSeconds = Math.min(120, Math.max(15, Math.ceil(baseTime + accountTime + dataTime)));
+    
+    return estimatedSeconds;
   };
 
   const runAnalysis = async (type: AnalysisType) => {
@@ -2936,10 +2975,46 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                     AI 제안 금액: {suggestedMinAmount.toLocaleString()}원
                                   </p>
                                   {suggestedAmountReason && (
-                                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                                    <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
                                       {suggestedAmountReason}
                                     </p>
                                   )}
+                                  {/* AI 제안 금액 기준 예상 시간 표시 */}
+                                  {analysisEntries.length > 0 && (() => {
+                                    const filteredEntries = analysisEntries.filter(e => 
+                                      e.debit >= suggestedMinAmount && e.description && e.description.length > 1
+                                    );
+                                    
+                                    if (filteredEntries.length > 0) {
+                                      const accountGroups = new Map<string, JournalEntry[]>();
+                                      filteredEntries.forEach(e => {
+                                        if (!accountGroups.has(e.accountName)) {
+                                          accountGroups.set(e.accountName, []);
+                                        }
+                                        accountGroups.get(e.accountName)!.push(e);
+                                      });
+                                      
+                                      const accountCount = accountGroups.size;
+                                      const totalEntries = filteredEntries.length;
+                                      const baseTime = 10;
+                                      const accountTime = accountCount * 0.5;
+                                      const dataTime = Math.ceil(totalEntries / 1000) * 2;
+                                      const estimatedSeconds = Math.min(120, Math.max(15, Math.ceil(baseTime + accountTime + dataTime)));
+                                      
+                                      const minutes = Math.floor(estimatedSeconds / 60);
+                                      const seconds = estimatedSeconds % 60;
+                                      const timeText = minutes > 0 
+                                        ? `${minutes}분 ${seconds}초`
+                                        : `${seconds}초`;
+                                      
+                                      return (
+                                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-1">
+                                          ⏱️ 이 금액 기준 예상 소요 시간: 약 {timeText}
+                                        </p>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                 </div>
                                 <Button
                                   variant="outline"
@@ -2967,10 +3042,25 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                           적합성 분석 실행하기
                         </Button>
                         {analysisEntries.length > 0 && (
-                          <div className="text-xs text-muted-foreground">
-                            현재 설정 기준으로 분석될 예상 항목 수: {
-                              analysisEntries.filter(e => e.debit >= appropriatenessMinAmount && e.description && e.description.length > 1).length.toLocaleString()
-                            }건
+                          <div className="space-y-1">
+                            <div className="text-xs text-muted-foreground">
+                              현재 설정 기준으로 분석될 예상 항목 수: {
+                                analysisEntries.filter(e => e.debit >= appropriatenessMinAmount && e.description && e.description.length > 1).length.toLocaleString()
+                              }건
+                            </div>
+                            {(() => {
+                              const estimatedTimeSeconds = calculateEstimatedTime();
+                              const minutes = Math.floor(estimatedTimeSeconds / 60);
+                              const seconds = estimatedTimeSeconds % 60;
+                              const timeText = minutes > 0 
+                                ? `${minutes}분 ${seconds}초`
+                                : `${seconds}초`;
+                              return (
+                                <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                  ⏱️ 예상 소요 시간: 약 {timeText}
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>

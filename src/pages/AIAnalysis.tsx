@@ -4,7 +4,7 @@
  * 기존 장부 분석 프로그램과 완전히 분리되어 별도로 사용
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { JournalEntry } from '@/types/analysis';
@@ -30,6 +30,205 @@ const AIAnalysis: React.FC = () => {
   
   type ViewType = 'upload' | 'table' | 'ai';
   const [currentView, setCurrentView] = useState<ViewType>('upload');
+  
+  // 스크롤 중 클릭 방지
+  const isScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const mouseDownPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const mouseDownTimeRef = useRef<number>(0);
+  const isMouseMovingRef = useRef(false);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const isScrollbarClickRef = useRef(false);
+  
+  useEffect(() => {
+    const handleScroll = () => {
+      isScrollingRef.current = true;
+      
+      // 스크롤이 끝난 후 500ms 후에 클릭 허용
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      scrollTimeoutRef.current = setTimeout(() => {
+        isScrollingRef.current = false;
+        isScrollbarClickRef.current = false;
+      }, 500);
+    };
+    
+    const handleMouseDown = (e: MouseEvent) => {
+      mouseDownPositionRef.current = { x: e.clientX, y: e.clientY };
+      mouseDownTimeRef.current = Date.now();
+      isMouseMovingRef.current = false;
+      
+      // 스크롤바 영역 클릭 감지 (오른쪽 끝 30px)
+      const windowWidth = window.innerWidth;
+      const scrollbarWidth = 17; // 일반적인 스크롤바 너비
+      if (e.clientX >= windowWidth - scrollbarWidth) {
+        // 스크롤바 영역 클릭이므로 클릭 방지 활성화
+        isScrollbarClickRef.current = true;
+        isScrollingRef.current = true;
+        console.log('스크롤바 클릭 감지 - 클릭 차단 활성화');
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current);
+        }
+        scrollTimeoutRef.current = setTimeout(() => {
+          isScrollingRef.current = false;
+          isScrollbarClickRef.current = false;
+        }, 1000); // 1초 동안 클릭 차단
+        return;
+      }
+      
+      // 헤더 영역에서 버튼 외부 클릭 감지
+      if (headerRef.current) {
+        const headerRect = headerRef.current.getBoundingClientRect();
+        const isInHeader = e.clientY >= headerRect.top && e.clientY <= headerRect.bottom;
+        if (isInHeader) {
+          const target = e.target as HTMLElement;
+          const button = target.closest('button');
+          // 헤더 영역에서 버튼이 아닌 곳을 클릭한 경우
+          if (!button && e.clientX >= windowWidth - 50) {
+            isScrollbarClickRef.current = true;
+            isScrollingRef.current = true;
+            console.log('헤더 영역 스크롤바 클릭 감지');
+            if (scrollTimeoutRef.current) {
+              clearTimeout(scrollTimeoutRef.current);
+            }
+            scrollTimeoutRef.current = setTimeout(() => {
+              isScrollingRef.current = false;
+              isScrollbarClickRef.current = false;
+            }, 1000);
+          }
+        }
+      }
+    };
+    
+    const handleClick = (e: MouseEvent) => {
+      // 스크롤바 클릭이면 모든 클릭 차단
+      if (isScrollbarClickRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        console.log('스크롤바 클릭 차단');
+        return false;
+      }
+      
+      // 스크롤바 영역 클릭 확인
+      const windowWidth = window.innerWidth;
+      const scrollbarWidth = 17;
+      if (e.clientX >= windowWidth - scrollbarWidth) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        console.log('스크롤바 영역 클릭 차단');
+        return false;
+      }
+    };
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      if (mouseDownPositionRef.current) {
+        const dx = Math.abs(e.clientX - mouseDownPositionRef.current.x);
+        const dy = Math.abs(e.clientY - mouseDownPositionRef.current.y);
+        // 3px 이상 움직이면 드래그로 간주
+        if (dx > 3 || dy > 3) {
+          isMouseMovingRef.current = true;
+          isScrollingRef.current = true;
+        }
+      }
+    };
+    
+    const handleMouseUp = () => {
+      mouseDownPositionRef.current = null;
+      if (isMouseMovingRef.current) {
+        // 드래그 후 클릭 무시 시간 연장
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current);
+        }
+        scrollTimeoutRef.current = setTimeout(() => {
+          isScrollingRef.current = false;
+          isMouseMovingRef.current = false;
+        }, 500);
+      }
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('mousedown', handleMouseDown, true); // capture phase
+    window.addEventListener('click', handleClick, true); // capture phase - 가장 먼저 실행
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('mousedown', handleMouseDown, true);
+      window.removeEventListener('click', handleClick, true);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
+  
+  // 안전한 클릭 핸들러
+  const handleSafeClick = (callback: () => void, e?: React.MouseEvent) => {
+    if (!e) {
+      return;
+    }
+    
+    // 스크롤바 클릭이면 무조건 차단
+    if (isScrollbarClickRef.current) {
+      console.log('스크롤바 클릭 - 차단');
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    
+    // 스크롤바 영역 클릭 확인
+    const windowWidth = window.innerWidth;
+    const scrollbarWidth = 17;
+    if (e.clientX && e.clientX >= windowWidth - scrollbarWidth) {
+      console.log('스크롤바 영역 클릭 - 차단');
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // 스크롤 중이면 클릭 무시
+    if (isScrollingRef.current) {
+      console.log('스크롤 중으로 인한 클릭 무시');
+      return;
+    }
+    
+    // 마우스가 움직였으면 클릭 무시 (드래그)
+    if (isMouseMovingRef.current) {
+      console.log('마우스 이동으로 인한 클릭 무시');
+      return;
+    }
+    
+    // 마우스 다운 후 너무 빠른 클릭은 무시 (150ms 미만)
+    const timeSinceMouseDown = Date.now() - mouseDownTimeRef.current;
+    if (timeSinceMouseDown < 150 && timeSinceMouseDown > 0) {
+      console.log('너무 빠른 클릭 무시');
+      return;
+    }
+    
+    // 실제 버튼 요소 확인
+    const target = e.target as HTMLElement;
+    const button = target.closest('button');
+    if (!button) {
+      console.log('버튼 요소가 아님');
+      return;
+    }
+    
+    // 버튼이 비활성화되어 있으면 무시
+    if (button.disabled) {
+      console.log('비활성화된 버튼');
+      return;
+    }
+    
+    callback();
+  };
 
   // 파일 처리
   const handleFileSelect = async (file: File) => {
@@ -147,7 +346,7 @@ const AIAnalysis: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b bg-background sticky top-0 z-10">
+      <header ref={headerRef} className="border-b bg-background sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -157,12 +356,90 @@ const AIAnalysis: React.FC = () => {
             </div>
             <div className="flex items-center gap-2">
               {currentView !== 'upload' && (
-                <Button variant="outline" size="sm" onClick={() => setCurrentView('upload')}>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={(e) => {
+                    // 클릭 위치가 버튼 영역 내인지 확인
+                    const buttonRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const clickX = e.clientX;
+                    const clickY = e.clientY;
+                    
+                    // 버튼 영역 외부 클릭 무시
+                    if (clickX < buttonRect.left || clickX > buttonRect.right || 
+                        clickY < buttonRect.top || clickY > buttonRect.bottom) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      return;
+                    }
+                    
+                    // 스크롤바 영역 클릭 무시
+                    const windowWidth = window.innerWidth;
+                    if (clickX >= windowWidth - 17) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      return;
+                    }
+                    
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleSafeClick(() => setCurrentView('upload'), e);
+                  }}
+                  onMouseDown={(e) => {
+                    const windowWidth = window.innerWidth;
+                    if (e.clientX >= windowWidth - 17) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      return;
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
                   <FileSpreadsheet className="mr-2 h-4 w-4" />
                   다른 파일 업로드
                 </Button>
               )}
-              <Button variant="ghost" size="sm" onClick={() => navigate('/analysis')}>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={(e) => {
+                  // 클릭 위치가 버튼 영역 내인지 확인
+                  const buttonRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const clickX = e.clientX;
+                  const clickY = e.clientY;
+                  
+                  // 버튼 영역 외부 클릭 무시
+                  if (clickX < buttonRect.left || clickX > buttonRect.right || 
+                      clickY < buttonRect.top || clickY > buttonRect.bottom) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                  }
+                  
+                  // 스크롤바 영역 클릭 무시
+                  const windowWidth = window.innerWidth;
+                  if (clickX >= windowWidth - 17) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                  }
+                  
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSafeClick(() => navigate('/analysis'), e);
+                }}
+                onMouseDown={(e) => {
+                  const windowWidth = window.innerWidth;
+                  if (e.clientX >= windowWidth - 17) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                  }
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 기존 분석으로
               </Button>
@@ -221,14 +498,38 @@ const AIAnalysis: React.FC = () => {
                   <Button
                     variant={(currentView as ViewType) === 'table' ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setCurrentView('table')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSafeClick(() => setCurrentView('table'), e);
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
                   >
                     분개장 테이블
                   </Button>
                   <Button
                     variant={(currentView as ViewType) === 'ai' ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setCurrentView('ai')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSafeClick(() => setCurrentView('ai'), e);
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
                   >
                     AI 심층 분석
                   </Button>
@@ -251,11 +552,23 @@ const AIAnalysis: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      setWorkbook(null);
-                      setFileName('');
-                      setJournalEntries([]);
-                      setCurrentView('upload');
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSafeClick(() => {
+                        setWorkbook(null);
+                        setFileName('');
+                        setJournalEntries([]);
+                        setCurrentView('upload');
+                      }, e);
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
                     }}
                   >
                     다른 파일 업로드
@@ -277,14 +590,38 @@ const AIAnalysis: React.FC = () => {
                   <Button
                     variant={(currentView as ViewType) === 'table' ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setCurrentView('table')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSafeClick(() => setCurrentView('table'), e);
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
                   >
                     분개장 테이블
                   </Button>
                   <Button
                     variant={(currentView as ViewType) === 'ai' ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setCurrentView('ai')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSafeClick(() => setCurrentView('ai'), e);
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
                   >
                     AI 심층 분석
                   </Button>
