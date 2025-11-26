@@ -899,7 +899,56 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
 
     const cost = Number(totalKRW.toFixed(2));
     setEstimatedCost(cost);
+    
+    // 예상 시간도 함께 계산
+    if (type === 'general') {
+      const expenses = analysisEntries.filter(e => e.debit > 0);
+      const totalEntries = expenses.length;
+      const sampleSize = Math.min(1000, totalEntries);
+      
+      // 예상 시간 계산 (초)
+      // 기본 처리 시간: 15초
+      // 데이터 건수에 따른 추가 시간: 1000건당 약 3초
+      const baseTime = 15;
+      const dataTime = Math.ceil(sampleSize / 1000) * 3;
+      const estimatedSeconds = Math.min(120, Math.max(20, Math.ceil(baseTime + dataTime)));
+      
+      setEstimatedTime(estimatedSeconds);
+    }
+    
     return cost;
+  };
+
+  // 일반사항 분석 예상 시간 계산
+  const calculateGeneralEstimatedTime = (): number => {
+    const expenses = analysisEntries.filter(e => e.debit > 0);
+    const totalEntries = expenses.length;
+    const sampleSize = Math.min(1000, totalEntries);
+    
+    // 예상 시간 계산 (초)
+    // 기본 처리 시간: 15초
+    // 데이터 건수에 따른 추가 시간: 1000건당 약 3초
+    const baseTime = 15;
+    const dataTime = Math.ceil(sampleSize / 1000) * 3;
+    const estimatedSeconds = Math.min(120, Math.max(20, Math.ceil(baseTime + dataTime)));
+    
+    return estimatedSeconds;
+  };
+
+  // 일반사항 분석 예상 시간 계산
+  const calculateGeneralEstimatedTime = (): number => {
+    const expenses = analysisEntries.filter(e => e.debit > 0);
+    const totalEntries = expenses.length;
+    const sampleSize = Math.min(1000, totalEntries);
+    
+    // 예상 시간 계산 (초)
+    // 기본 처리 시간: 15초
+    // 데이터 건수에 따른 추가 시간: 1000건당 약 3초
+    const baseTime = 15;
+    const dataTime = Math.ceil(sampleSize / 1000) * 3;
+    const estimatedSeconds = Math.min(120, Math.max(20, Math.ceil(baseTime + dataTime)));
+    
+    return estimatedSeconds;
   };
 
   // 적합성 분석 예상 시간 계산
@@ -1217,6 +1266,28 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
       }));
     const title = generalDrilldownType === 'debit' ? '차변_상세내역' : '대변_상세내역';
     exportToExcel(filteredData, title, title, [12, 15, 20, 40, 20, 12, 12]);
+  };
+
+  // AI 종합의견 엑셀 다운로드
+  const handleGeneralOpinionDownload = () => {
+    if (!generalData) return;
+    
+    const data = [
+      {
+        '항목': 'Risk Score',
+        '값': `${generalData.riskScore}/100`
+      },
+      {
+        '항목': 'AI 종합 의견',
+        '값': generalData.content
+      },
+      {
+        '항목': '분석 일시',
+        '값': new Date().toLocaleString('ko-KR')
+      }
+    ];
+    
+    exportToExcel(data, '일반사항_AI종합의견', 'AI 종합 의견', [20, 80]);
   };
 
   const getDebitCreditDrilldownData = () => {
@@ -1955,10 +2026,27 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                             예상 비용 확인
                           </Button>
                         </div>
-                        {estimatedCost !== null && (
-                          <p className="mt-4 text-sm text-muted-foreground">
-                            예상 비용: 약 ₩{estimatedCost.toFixed(2)}
-                          </p>
+                        {(estimatedCost !== null || analysisEntries.length > 0) && (
+                          <div className="mt-4 space-y-1">
+                            {estimatedCost !== null && (
+                              <p className="text-sm text-muted-foreground">
+                                예상 비용: 약 ₩{estimatedCost.toFixed(2)}
+                              </p>
+                            )}
+                            {analysisEntries.length > 0 && (() => {
+                              const estimatedTimeSeconds = calculateGeneralEstimatedTime();
+                              const minutes = Math.floor(estimatedTimeSeconds / 60);
+                              const seconds = estimatedTimeSeconds % 60;
+                              const timeText = minutes > 0 
+                                ? `${minutes}분 ${seconds}초`
+                                : `${seconds}초`;
+                              return (
+                                <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">
+                                  ⏱️ 예상 소요 시간: 약 {timeText}
+                                </p>
+                              );
+                            })()}
+                          </div>
                         )}
                       </div>
                     )}
@@ -1970,9 +2058,20 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                     )}
                     {generalStatus === 'success' && generalData && (
                       <div>
-                        <Badge className="mb-4">
-                          Risk Score: {generalData.riskScore}/100
-                        </Badge>
+                        <div className="flex items-center justify-between mb-4">
+                          <Badge>
+                            Risk Score: {generalData.riskScore}/100
+                          </Badge>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleGeneralOpinionDownload}
+                            className="flex items-center gap-1"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            엑셀 다운로드
+                          </Button>
+                        </div>
                         <p className="whitespace-pre-wrap">{generalData.content}</p>
                       </div>
                     )}
