@@ -425,6 +425,12 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
     });
   };
 
+  // 잔액 컬럼인지 확인하는 함수
+  const isBalanceColumn = (header: string): boolean => {
+    const normalized = header.replace(/\s/g, '').toLowerCase();
+    return normalized.includes('잔액') || normalized.includes('balance');
+  };
+
   const downloadSamples = () => {
     if (sampledData.length === 0) {
       toast({
@@ -441,12 +447,19 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
       // 샘플링 방법 이름
       const samplingMethodName = samplingMethod === 'random' ? '무작위' : samplingMethod === 'systematic' ? '체계적' : 'MUS';
       
+      // 잔액 컬럼 제외한 헤더 목록
+      const originalHeaders = Object.keys(sampledData[0] || {}).filter(h => !isBalanceColumn(h));
+      
       // 이상거래 포함 여부에 따라 구분 열 추가, 샘플링 방법을 오른쪽 끝에 추가
       const exportData = sampledData.map((row, idx) => {
         const isAnomaly = includeAnomalies && anomalyRowObjects.has(row);
-        const rowData: any = {
-          ...row,
-        };
+        const rowData: any = {};
+        
+        // 잔액 컬럼 제외하고 데이터 복사
+        originalHeaders.forEach(header => {
+          rowData[header] = row[header];
+        });
+        
         // 이상거래가 포함된 경우에만 구분 열 추가
         if (includeAnomalies) {
           rowData['구분'] = isAnomaly ? '이상거래' : '일반';
@@ -457,19 +470,45 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
       });
       
       // 구분 설명과 헤더를 포함한 데이터 생성
-      const originalHeaders = Object.keys(sampledData[0] || {});
       const headers = includeAnomalies 
         ? ['구분', ...originalHeaders, '샘플링방법']
         : [...originalHeaders, '샘플링방법'];
       
+      // 샘플링 방법 설명
+      const getSamplingMethodDescription = (): string => {
+        switch (samplingMethod) {
+          case 'random':
+            return '※ 샘플링 방법: 무작위 샘플링 - 모든 거래가 동일한 확률로 선택될 수 있는 무작위 추출 방법입니다.';
+          case 'systematic':
+            return '※ 샘플링 방법: 체계적 샘플링 - 첫 번째 샘플을 무작위로 선택한 후 일정한 간격으로 샘플을 추출하는 방법입니다.';
+          case 'mus':
+            return '※ 샘플링 방법: MUS (Monetary Unit Sampling) - 금액 단위 샘플링으로, 금액이 큰 거래일수록 선택될 확률이 높은 금액 가중치 기반 샘플링 방법입니다.';
+          default:
+            return '';
+        }
+      };
+      
       // 설명 행 추가
-      const descriptionRow: any[] = [];
+      const descriptionRows: any[][] = [];
+      
+      // 샘플링 방법 설명 추가
+      const samplingDescriptionRow: any[] = [];
+      samplingDescriptionRow.push(getSamplingMethodDescription());
+      // 나머지 셀은 비워두기
+      for (let i = 1; i < headers.length; i++) {
+        samplingDescriptionRow.push('');
+      }
+      descriptionRows.push(samplingDescriptionRow);
+      
+      // 이상거래 설명 추가 (있는 경우)
       if (includeAnomalies) {
-        descriptionRow.push('※ 구분: "이상거래"는 심각도가 높은 이상거래를 의미하며 (Z-score 3 이상, 최대값 등), "일반"은 일반 샘플링으로 추출된 거래를 의미합니다.');
+        const anomalyDescriptionRow: any[] = [];
+        anomalyDescriptionRow.push('※ 구분: "이상거래"는 심각도가 높은 이상거래를 의미하며 (Z-score 3 이상, 최대값 등), "일반"은 일반 샘플링으로 추출된 거래를 의미합니다.');
         // 나머지 셀은 비워두기
         for (let i = 1; i < headers.length; i++) {
-          descriptionRow.push('');
+          anomalyDescriptionRow.push('');
         }
+        descriptionRows.push(anomalyDescriptionRow);
       }
       
       // 데이터 행 생성
@@ -483,9 +522,7 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
       
       // 전체 데이터 (설명 + 헤더 + 데이터)
       const allRows: any[][] = [];
-      if (includeAnomalies && descriptionRow.length > 0) {
-        allRows.push(descriptionRow);
-      }
+      allRows.push(...descriptionRows);
       allRows.push(headers);
       allRows.push(...dataRows);
       
@@ -823,9 +860,11 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
                 <TableHeader>
                   <TableRow>
                     {includeAnomalies && <TableHead className="w-20">구분</TableHead>}
-                    {Object.keys(sampledData[0] || {}).map(key => (
-                      <TableHead key={key}>{key}</TableHead>
-                    ))}
+                    {Object.keys(sampledData[0] || {})
+                      .filter(key => !isBalanceColumn(key))
+                      .map(key => (
+                        <TableHead key={key}>{key}</TableHead>
+                      ))}
                     <TableHead className="w-24">샘플링방법</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -833,6 +872,8 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
                   {sampledData.map((row, idx) => {
                     const isAnomaly = includeAnomalies && anomalyRowObjects.has(row);
                     const samplingMethodName = samplingMethod === 'random' ? '무작위' : samplingMethod === 'systematic' ? '체계적' : 'MUS';
+                    // 잔액 컬럼 제외한 헤더 목록
+                    const displayHeaders = Object.keys(row).filter(key => !isBalanceColumn(key));
                     return (
                     <TableRow key={idx}>
                         {includeAnomalies && (
@@ -844,9 +885,9 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
                             )}
                           </TableCell>
                         )}
-                      {Object.values(row).map((val, j) => (
+                      {displayHeaders.map((header, j) => (
                         <TableCell key={j} className="text-sm">
-                          {val instanceof Date ? val.toLocaleDateString() : String(val ?? '')}
+                          {row[header] instanceof Date ? row[header].toLocaleDateString() : String(row[header] ?? '')}
                         </TableCell>
                       ))}
                         <TableCell className="text-sm text-muted-foreground">
