@@ -9,10 +9,20 @@ export default {
       center: true,
       padding: "2rem",
       screens: {
-        "2xl": "1400px",
+        "sm": "80vw",
+        "md": "80vw",
+        "lg": "80vw",
+        "xl": "80vw",
+        "2xl": "80vw",
       },
+      // 모든 브레이크포인트에서 80vw로 조정 (화면 폭의 80%)
     },
     extend: {
+      maxWidth: {
+        '49vw': '49vw', // 하위 호환성 유지
+        '70vw': '70vw', // 하위 호환성 유지
+        '80vw': '80vw',
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

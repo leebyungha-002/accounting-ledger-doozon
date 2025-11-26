@@ -5,9 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, TrendingUp, Download, BarChart3, Sparkles, Loader2 } from 'lucide-react';
+import { ArrowLeft, TrendingUp, Download, BarChart3, Sparkles, Loader2, DollarSign } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { analyzeWithFlash, hasApiKey } from '@/lib/geminiClient';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { analyzeWithFlash, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
+import { getUsageSummary, type UsageSummary } from '@/lib/usageTracker';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -94,6 +96,8 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
   const [isAnalyzingSales, setIsAnalyzingSales] = useState<boolean>(false);
   const [isAnalyzingExpense, setIsAnalyzingExpense] = useState<boolean>(false);
   const [isAnalyzingManufacturing, setIsAnalyzingManufacturing] = useState<boolean>(false);
+  const [showCostDialog, setShowCostDialog] = useState<boolean>(false);
+  const [usageSummary, setUsageSummary] = useState<UsageSummary>(getUsageSummary());
 
   // 매출/비용 계정 자동 분류
   const categorizedAccounts = useMemo(() => {
@@ -392,20 +396,39 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
     setSalesAnalysis('');
 
     try {
+      // 실제 데이터가 있는 월만 추출
+      const monthsWithData: number[] = [];
       const monthlyDataText = Array.from({ length: 12 }, (_, i) => {
         const month = i + 1;
         const amount = salesMonthlyTotals[month] || 0;
-        return `${month}월: ${amount.toLocaleString()}원`;
-      }).join('\n');
+        if (amount !== 0) {
+          monthsWithData.push(month);
+        }
+        return amount !== 0 ? `${month}월: ${amount.toLocaleString()}원` : null;
+      }).filter(Boolean).join('\n');
 
-      const prompt = `다음은 매출 계정의 월별 합계 데이터입니다. 재무 분석 전문가의 관점에서 다음을 분석해주세요:
+      const dataPeriod = monthsWithData.length > 0 
+        ? `${monthsWithData[0]}월부터 ${monthsWithData[monthsWithData.length - 1]}월까지 (총 ${monthsWithData.length}개월)`
+        : '데이터 없음';
+
+      const prompt = `다음은 매출 계정의 월별 합계 데이터입니다. 
+
+**중요 지시사항:**
+- 제공된 데이터는 ${dataPeriod} 기간의 데이터입니다.
+- 일부 월의 데이터가 누락되어 있어도 이는 정상입니다 (예: 반기 데이터만 있는 경우).
+- 연속적인 월 누락이 있어도 "심각한 불균형"이나 "심각한 문제"로 해석하지 마세요.
+- 제공된 데이터가 있는 기간만 분석하고, 데이터가 없는 월은 무시하세요.
 
 ${monthlyDataText}
 
+재무 분석 전문가의 관점에서 다음을 분석해주세요:
+
 분석 요청사항:
-1. 월별 매출 추이 패턴 분석 (증가/감소/계절성)
-2. 주요 특징 및 특이사항
+1. 제공된 기간 내 월별 매출 추이 패턴 분석 (증가/감소/계절성)
+2. 주요 특징 및 특이사항 (데이터가 있는 기간만 기준)
 3. 개선 제안사항
+
+**주의:** 데이터가 없는 월에 대한 언급이나 "심각한 불균형", "심각한 문제" 같은 표현은 사용하지 마세요. 제공된 데이터 기간만 분석하세요.
 
 한국어로 간결하고 전문적으로 작성해주세요.`;
 
@@ -466,21 +489,40 @@ ${monthlyDataText}
     setExpenseAnalysis('');
 
     try {
+      // 실제 데이터가 있는 월만 추출
+      const monthsWithData: number[] = [];
       const monthlyDataText = Array.from({ length: 12 }, (_, i) => {
         const month = i + 1;
         const amount = expenseMonthlyTotals[month] || 0;
-        return `${month}월: ${amount.toLocaleString()}원`;
-      }).join('\n');
+        if (amount !== 0) {
+          monthsWithData.push(month);
+        }
+        return amount !== 0 ? `${month}월: ${amount.toLocaleString()}원` : null;
+      }).filter(Boolean).join('\n');
 
-      const prompt = `다음은 판관비 계정의 월별 합계 데이터입니다. 재무 분석 전문가의 관점에서 다음을 분석해주세요:
+      const dataPeriod = monthsWithData.length > 0 
+        ? `${monthsWithData[0]}월부터 ${monthsWithData[monthsWithData.length - 1]}월까지 (총 ${monthsWithData.length}개월)`
+        : '데이터 없음';
+
+      const prompt = `다음은 판관비 계정의 월별 합계 데이터입니다. 
+
+**중요 지시사항:**
+- 제공된 데이터는 ${dataPeriod} 기간의 데이터입니다.
+- 일부 월의 데이터가 누락되어 있어도 이는 정상입니다 (예: 반기 데이터만 있는 경우).
+- 연속적인 월 누락이 있어도 "심각한 불균형"이나 "심각한 문제"로 해석하지 마세요.
+- 제공된 데이터가 있는 기간만 분석하고, 데이터가 없는 월은 무시하세요.
 
 ${monthlyDataText}
 
+재무 분석 전문가의 관점에서 다음을 분석해주세요:
+
 분석 요청사항:
-1. 월별 판관비 추이 패턴 분석 (증가/감소/계절성)
-2. 주요 특징 및 특이사항
+1. 제공된 기간 내 월별 판관비 추이 패턴 분석 (증가/감소/계절성)
+2. 주요 특징 및 특이사항 (데이터가 있는 기간만 기준)
 3. 비용 효율성 평가
 4. 개선 제안사항
+
+**주의:** 데이터가 없는 월에 대한 언급이나 "심각한 불균형", "심각한 문제" 같은 표현은 사용하지 마세요. 제공된 데이터 기간만 분석하세요.
 
 한국어로 간결하고 전문적으로 작성해주세요.`;
 
@@ -524,21 +566,40 @@ ${monthlyDataText}
     setManufacturingAnalysis('');
 
     try {
+      // 실제 데이터가 있는 월만 추출
+      const monthsWithData: number[] = [];
       const monthlyDataText = Array.from({ length: 12 }, (_, i) => {
         const month = i + 1;
         const amount = manufacturingMonthlyTotals[month] || 0;
-        return `${month}월: ${amount.toLocaleString()}원`;
-      }).join('\n');
+        if (amount !== 0) {
+          monthsWithData.push(month);
+        }
+        return amount !== 0 ? `${month}월: ${amount.toLocaleString()}원` : null;
+      }).filter(Boolean).join('\n');
 
-      const prompt = `다음은 제조원가 계정의 월별 합계 데이터입니다. 재무 분석 전문가의 관점에서 다음을 분석해주세요:
+      const dataPeriod = monthsWithData.length > 0 
+        ? `${monthsWithData[0]}월부터 ${monthsWithData[monthsWithData.length - 1]}월까지 (총 ${monthsWithData.length}개월)`
+        : '데이터 없음';
+
+      const prompt = `다음은 제조원가 계정의 월별 합계 데이터입니다. 
+
+**중요 지시사항:**
+- 제공된 데이터는 ${dataPeriod} 기간의 데이터입니다.
+- 일부 월의 데이터가 누락되어 있어도 이는 정상입니다 (예: 반기 데이터만 있는 경우).
+- 연속적인 월 누락이 있어도 "심각한 불균형"이나 "심각한 문제"로 해석하지 마세요.
+- 제공된 데이터가 있는 기간만 분석하고, 데이터가 없는 월은 무시하세요.
 
 ${monthlyDataText}
 
+재무 분석 전문가의 관점에서 다음을 분석해주세요:
+
 분석 요청사항:
-1. 월별 제조원가 추이 패턴 분석 (증가/감소/계절성)
-2. 주요 특징 및 특이사항
+1. 제공된 기간 내 월별 제조원가 추이 패턴 분석 (증가/감소/계절성)
+2. 주요 특징 및 특이사항 (데이터가 있는 기간만 기준)
 3. 원가 관리 효율성 평가
 4. 개선 제안사항
+
+**주의:** 데이터가 없는 월에 대한 언급이나 "심각한 불균형", "심각한 문제" 같은 표현은 사용하지 마세요. 제공된 데이터 기간만 분석하세요.
 
 한국어로 간결하고 전문적으로 작성해주세요.`;
 
@@ -790,6 +851,16 @@ ${monthlyDataText}
               <Download className="mr-2 h-4 w-4" />
               엑셀 다운로드
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setUsageSummary(getUsageSummary());
+                setShowCostDialog(true);
+              }}
+            >
+              <DollarSign className="mr-2 h-4 w-4" />
+              요금 확인
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -892,6 +963,66 @@ ${monthlyDataText}
           )}
         </div>
       )}
+
+      {/* 요금 확인 Dialog */}
+      <Dialog open={showCostDialog} onOpenChange={setShowCostDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" />
+              AI 분석 요금 정보
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* 누적 요금 */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">누적 사용 요금</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">전체 누적</div>
+                    <div className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                      ₩{usageSummary.totalCost.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      총 {usageSummary.totalAnalyses}회 분석
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">오늘 사용</div>
+                    <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                      ₩{usageSummary.todayCost.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">이번 달 사용</div>
+                    <div className="text-lg font-bold text-purple-600 dark:text-purple-400">
+                      ₩{usageSummary.thisMonthCost.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">평균 비용</div>
+                    <div className="text-sm font-semibold">
+                      ₩{usageSummary.totalAnalyses > 0 
+                        ? Math.round(usageSummary.totalCost / usageSummary.totalAnalyses).toLocaleString()
+                        : '0'}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 안내 */}
+            <div className="p-3 bg-muted rounded-md text-xs text-muted-foreground">
+              <p>• 예상 요금은 분석 시작 전에 계산됩니다.</p>
+              <p>• Gemini 2.5 Flash 모델 기준으로 계산됩니다.</p>
+              <p>• 무료 티어의 경우 분당 15회 요청 제한이 있습니다.</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

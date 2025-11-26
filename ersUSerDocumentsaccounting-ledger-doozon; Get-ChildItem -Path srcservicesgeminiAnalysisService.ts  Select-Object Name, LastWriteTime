@@ -1,0 +1,35 @@
+warning: in the working copy of 'package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/App.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/BenfordAnalysis.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/dialog.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/index.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/integrations/supabase/client.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/geminiClient.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/smartSampling.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/AdvancedLedgerAnalysis.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/DuplicateVendorAnalysis.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/Index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/MonthlyTrendAnalysis.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/PreviousPeriodComparison.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/SamplingAnalysis.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/TransactionSearch.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tailwind.config.ts', LF will be replaced by CRLF the next time Git touches it
+ package-lock.json                      | 199 [32m+++++++[m
+ package.json                           |   2 [32m+[m
+ src/App.tsx                            |  30 [32m+[m[31m-[m
+ src/components/ui/dialog.tsx           |  10 [32m+[m[31m-[m
+ src/index.css                          | 123 [32m++++[m
+ src/integrations/supabase/client.ts    |  21 [32m+[m[31m-[m
+ src/lib/geminiClient.ts                | 988 [32m+++++++++++++++++++++++++++[m[31m------[m
+ src/main.tsx                           |   1 [32m+[m
+ src/pages/AdvancedLedgerAnalysis.tsx   | 856 [32m++++++++++++++++++++++[m[31m------[m
+ src/pages/DualOffsetAnalysis.tsx       | 279 [32m+++++++++[m[31m-[m
+ src/pages/DuplicateVendorAnalysis.tsx  | 149 [32m++++[m[31m-[m
+ src/pages/MonthlyTrendAnalysis.tsx     | 165 [32m+++++[m[31m-[m
+ src/pages/PreviousPeriodComparison.tsx | 224 [32m+++++[m[31m---[m
+ src/pages/SamplingAnalysis.tsx         | 575 [32m++++++++++++++++++[m[31m-[m
+ src/pages/TransactionSearch.tsx        | 468 [32m++++++++++++++[m[31m--[m
+ tailwind.config.ts                     |  12 [32m+[m[31m-[m
+ 16 files changed, 3531 insertions(+), 571 deletions(-)

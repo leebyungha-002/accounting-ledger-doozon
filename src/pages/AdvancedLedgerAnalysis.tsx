@@ -19,8 +19,9 @@ import { ProfitLossAnalysis } from './ProfitLossAnalysis';
 import { SamplingAnalysis } from './SamplingAnalysis';
 import { PreviousPeriodComparison } from './PreviousPeriodComparison';
 import { TransactionSearch } from './TransactionSearch';
+import { FinancialStatementAnalysis } from './FinancialStatementAnalysis';
 import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
-import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost, testApiKey } from '@/lib/geminiClient';
+import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { addUsageRecord, getUsageSummary, clearUsageHistory, exportUsageToCSV, type UsageSummary } from '@/lib/usageTracker';
 import {
   FileSpreadsheet,
@@ -50,7 +51,7 @@ import {
 
 // Types
 type LedgerRow = { [key: string]: string | number | Date | undefined };
-type View = 'selection' | 'account_analysis' | 'offset_analysis' | 'general_ledger' | 'duplicate_vendor' | 'profit_loss' | 'monthly_trend' | 'previous_period' | 'transaction_search' | 'sampling' | 'fss_risk' | 'benford';
+type View = 'selection' | 'account_analysis' | 'offset_analysis' | 'general_ledger' | 'duplicate_vendor' | 'profit_loss' | 'monthly_trend' | 'previous_period' | 'transaction_search' | 'sampling' | 'fss_risk' | 'benford' | 'financial_statement';
 type SamplingMethod = 'random' | 'systematic' | 'mus';
 
 // Helper functions
@@ -58,27 +59,14 @@ const normalizeAccountName = (name: string): string => {
   return (name || "").replace(/^\d+[_.-]?\s*/, '');
 };
 
-const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => {
-  // 먼저 정확히 일치하는 헤더를 찾기
-  for (const h of headers) {
-    const cleanedHeader = (h || "").toLowerCase().replace(/\s/g, '').replace(/^\d+[_.-]?/, '');
-    for (const kw of keywords) {
-      const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
-      // 정확히 일치하는 경우 우선 반환
-      if (cleanedHeader === cleanedKw) {
-        return h;
-      }
-    }
-  }
-  // 정확히 일치하는 것이 없으면 포함하는 경우 찾기
-  return headers.find(h => {
+const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => 
+  headers.find(h => {
     const cleanedHeader = (h || "").toLowerCase().replace(/\s/g, '').replace(/^\d+[_.-]?/, '');
     return keywords.some(kw => {
       const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
       return cleanedHeader.includes(cleanedKw);
     });
   });
-};
 
 const parseDate = (value: any): Date | null => {
   if (value instanceof Date && !isNaN(value.getTime())) {
@@ -115,7 +103,7 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
   let headerIndex = -1;
   const searchLimit = Math.min(20, sheetDataAsArrays.length);
   const dateKeywords = ['일자', '날짜', '거래일', 'date'];
-  const otherHeaderKeywords = ['적요', '거래처', '차변', '대변', '잔액', '금액', '코드', '내용', '비고'];
+  const otherHeaderKeywords = ['적요', '거래처', '차변', '대변', '금액', '코드', '내용', '비고'];
 
   for (let i = 0; i < searchLimit; i++) {
     const potentialHeaderRow = sheetDataAsArrays[i];
@@ -170,50 +158,34 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
 
   if (headerIndex === -1) return { data: [], headers: [], orderedHeaders: [] };
 
-  // 디버깅: 헤더 행 출력
-  console.log(`🔍 헤더 행 인덱스: ${headerIndex}`);
-  console.log(`🔍 헤더 행 내용 (원본):`, sheetDataAsArrays[headerIndex]);
-  
-  // 원본 Excel 헤더 행을 그대로 사용 (모든 컬럼 포함)
-  const orderedHeaders = (sheetDataAsArrays[headerIndex] || []).map(h => String(h || '').trim());
-  console.log(`🔍 원본 orderedHeaders (모든 컬럼):`, orderedHeaders);
-  console.log(`🔍 orderedHeaders 길이: ${orderedHeaders.length}`);
-  console.log(`🔍 orderedHeaders 상세:`, orderedHeaders.map((h, i) => `${i}: "${h}"`));
-  
-  // 헤더 행 다음부터 데이터 시작
-  const rawDataArray = sheetDataAsArrays.slice(headerIndex + 1).filter(row => {
-    // 빈 행 제거
-    return row && row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== '');
-  });
-  
-  // 수동으로 데이터 객체 생성 (orderedHeaders의 모든 컬럼 포함)
-  const rawData: LedgerRow[] = rawDataArray.map(row => {
-    const obj: LedgerRow = {};
-    orderedHeaders.forEach((header, index) => {
-      // 헤더가 있으면 해당 인덱스의 데이터를 사용 (빈 값도 포함)
-      if (header && header.trim() !== '') {
-        obj[header] = row[index] !== null && row[index] !== undefined ? row[index] : '';
-      }
-    });
-    return obj;
-  });
-  
+  const rawData = XLSX.utils.sheet_to_json<LedgerRow>(worksheet, { range: headerIndex });
   const headers = rawData.length > 0 ? Object.keys(rawData[0]) : [];
-  
-  // 디버깅: 파싱 결과 출력
-  console.log(`🔍 파싱된 headers (Object.keys):`, headers);
-  console.log(`🔍 headers 길이: ${headers.length}`);
-  console.log(`🔍 headers와 orderedHeaders 비교:`, {
-    orderedHeadersCount: orderedHeaders.filter(h => h && h.trim() !== '').length,
-    headersCount: headers.length,
-    missing: orderedHeaders.filter(h => h && h.trim() !== '' && !headers.includes(h))
-  });
+  const orderedHeaders = (sheetDataAsArrays[headerIndex] || []).map(h => String(h || '').trim());
 
   // 필터링: 합계행, 빈행, 헤더 중복 제거 (기존 데이터에 영향 없음)
   const data = rawData.filter(row => {
-    // 1. 합계 행 제거: [전 기 이 월], [월 계], [누 계] 등
-    const firstValue = Object.values(row)[0];
-    if (firstValue && String(firstValue).includes('[') && String(firstValue).includes(']')) {
+    // 1. 합계 행 제거: 모든 컬럼의 값을 확인하여 월계/누계 행 제거
+    const isMonthlyOrCumulative = Object.values(row).some(val => {
+      if (val === null || val === undefined) return false;
+      const str = String(val).trim();
+      // 공백 제거 후 정규화
+      const normalized = str.replace(/\s/g, '');
+      // 다양한 형태의 월계/누계 확인
+      return normalized.includes('월계') || 
+             normalized.includes('누계') ||
+             normalized.includes('[월계]') || 
+             normalized.includes('[누계]') ||
+             normalized === '월계' ||
+             normalized === '누계' ||
+             str.includes('[ 월계 ]') ||
+             str.includes('[ 누계 ]') ||
+             str.includes('[월 계]') ||
+             str.includes('[누 계]') ||
+             str.includes('[ 전 기 이 월 ]') ||
+             str.includes('[ 전기이월 ]');
+    });
+    
+    if (isMonthlyOrCumulative) {
       return false;
     }
     
@@ -247,12 +219,96 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
   return { data, headers, orderedHeaders };
 };
 
-const cleanAmount = (val: any) => typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) || 0 : typeof val === 'number' ? val : 0;
+const cleanAmount = (val: any): number => {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') {
+    return isNaN(val) ? 0 : val;
+  }
+  if (typeof val === 'string') {
+    const cleaned = val.replace(/,/g, '').replace(/\s/g, '').trim();
+    if (cleaned === '' || cleaned === '-' || cleaned === '0') return 0;
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+};
+
+/**
+ * 재무제표 전용 헤더 인식 함수
+ * "과목", "당기", "전기" 키워드로 헤더를 찾음
+ */
+const getFinancialStatementData = (worksheet: XLSX.WorkSheet | undefined): { data: LedgerRow[], headers: string[], orderedHeaders: string[] } => {
+  if (!worksheet) return { data: [], headers: [], orderedHeaders: [] };
+
+  const sheetDataAsArrays: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
+  if (sheetDataAsArrays.length < 2) return { data: [], headers: [], orderedHeaders: [] };
+
+  let headerIndex = -1;
+  const searchLimit = Math.min(20, sheetDataAsArrays.length);
+  const financialStatementKeywords = ['과목', '당기', '전기', '기간', '기준일'];
+
+  // 1차 시도: 재무제표 키워드로 헤더 찾기
+  for (let i = 0; i < searchLimit; i++) {
+    const potentialHeaderRow = sheetDataAsArrays[i];
+    if (!potentialHeaderRow || potentialHeaderRow.length < 3) continue;
+
+    const headerContent = potentialHeaderRow.map(cell => String(cell || '').trim().toLowerCase()).join('|');
+    const keywordCount = financialStatementKeywords.filter(kw => headerContent.includes(kw.toLowerCase())).length;
+    
+    // "과목", "당기", "전기" 중 최소 2개 이상 포함되어야 함
+    if (keywordCount >= 2) {
+      // "과목"과 ("당기" 또는 "전기")가 모두 있어야 함
+      const hasSubject = headerContent.includes('과목');
+      const hasCurrent = headerContent.includes('당기');
+      const hasPrevious = headerContent.includes('전기');
+      
+      if (hasSubject && (hasCurrent || hasPrevious)) {
+        headerIndex = i;
+        break;
+      }
+    }
+  }
+
+  // 2차 시도: 비어있지 않은 셀이 가장 많은 행 선택
+  if (headerIndex === -1) {
+    let maxNonEmptyCells = 0;
+    let potentialHeaderIndex = -1;
+    for (let i = 0; i < searchLimit; i++) {
+      const row = sheetDataAsArrays[i];
+      if (!row) continue;
+      const nonEmptyCells = row.filter(cell => cell !== null && String(cell).trim() !== '');
+      if (nonEmptyCells.length >= maxNonEmptyCells && nonEmptyCells.length >= 3) {
+        maxNonEmptyCells = nonEmptyCells.length;
+        potentialHeaderIndex = i;
+      }
+    }
+    headerIndex = potentialHeaderIndex;
+  }
+
+  if (headerIndex === -1) return { data: [], headers: [], orderedHeaders: [] };
+
+  const rawData = XLSX.utils.sheet_to_json<LedgerRow>(worksheet, { range: headerIndex });
+  const headers = rawData.length > 0 ? Object.keys(rawData[0]) : [];
+  const orderedHeaders = (sheetDataAsArrays[headerIndex] || []).map(h => String(h || '').trim());
+
+  // 필터링: 빈 행 제거
+  const data = rawData.filter(row => {
+    const hasData = Object.values(row).some(val => {
+      if (val === null || val === undefined) return false;
+      const str = String(val).trim();
+      return str !== '' && str !== '0' && str !== '-';
+    });
+    return hasData;
+  });
+
+  return { data, headers, orderedHeaders };
+};
 
 const AdvancedLedgerAnalysis = () => {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousFileInputRef = useRef<HTMLInputElement>(null);
+  const financialStatementFileInputRef = useRef<HTMLInputElement>(null);
 
   // File states
   const [fileName, setFileName] = useState<string>('');
@@ -261,6 +317,11 @@ const AdvancedLedgerAnalysis = () => {
   const [previousWorkbook, setPreviousWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [accountNames, setAccountNames] = useState<string[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('');
+  
+  // Financial Statement states
+  const [financialStatementWorkbook, setFinancialStatementWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [financialStatementFileName, setFinancialStatementFileName] = useState<string>('');
+  const [isDraggingFinancialStatement, setIsDraggingFinancialStatement] = useState<boolean>(false);
   
   // UI states
   const [currentView, setCurrentView] = useState<View>('selection');
@@ -309,6 +370,7 @@ const AdvancedLedgerAnalysis = () => {
     { id: 'sampling', title: '감사 샘플링', description: '통계적 기법(MUS) 또는 비통계적 기법(랜덤, 체계적)을 사용하여 감사 테스트를 위한 샘플을 추출합니다.', icon: FlaskConical },
     { id: 'fss_risk', title: '금감원 지적사례 기반 위험 분석', description: '외부의 금감원 지적사례 텍스트 파일을 기반으로, 현재 원장에서 유사한 위험이 있는지 AI가 분석합니다.', icon: Shield },
     { id: 'benford', title: '벤포드 법칙 분석', description: '계정의 금액 데이터 첫 자리 수 분포를 분석하여 잠재적인 이상 징후나 데이터 조작 가능성을 탐지합니다.', icon: BarChart3 },
+    { id: 'financial_statement', title: '재무제표 증감 분석', description: '재무상태표를 업로드하여 계정별 증감을 분석하고 재무비율을 계산합니다.', icon: TrendingUpIcon },
   ];
 
   const handleFile = (file: File | null | undefined) => {
@@ -412,6 +474,78 @@ const AdvancedLedgerAnalysis = () => {
         });
         setPreviousWorkbook(null);
         setPreviousFileName('');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleFinancialStatementFile = (file: File | null | undefined) => {
+    if (!file) {
+      if (financialStatementFileInputRef.current) financialStatementFileInputRef.current.value = "";
+      return;
+    }
+
+    const isExcel = file.type.includes('spreadsheetml') || file.type.includes('ms-excel') || file.name.endsWith('.xls') || file.name.endsWith('.xlsx');
+    if (!isExcel) {
+      toast({
+        title: '오류',
+        description: '엑셀 파일(.xlsx, .xls)만 업로드할 수 있습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setFinancialStatementFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const loadedWorkbook = XLSX.read(data, { type: 'array', cellDates: true });
+
+        const allSheetNames = loadedWorkbook.SheetNames;
+        if (allSheetNames.length === 0) {
+          toast({
+            title: '오류',
+            description: '엑셀 파일에 시트가 없습니다.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        // 첫 번째 시트에서 재무제표 데이터 확인
+        const firstSheet = loadedWorkbook.Sheets[allSheetNames[0]];
+        const { data: financialData, headers, orderedHeaders } = getFinancialStatementData(firstSheet);
+        
+        // 디버깅 정보
+        console.log('재무제표 업로드:', {
+          sheetName: allSheetNames[0],
+          dataLength: financialData.length,
+          headers: headers,
+          orderedHeaders: orderedHeaders,
+        });
+        
+        // 검증 완화: 파일이 업로드되면 일단 통과 (분석 화면에서 데이터 확인)
+        // 최소한 시트가 있고 데이터가 있으면 통과
+        if (financialData.length === 0 && orderedHeaders.length === 0) {
+          console.warn('재무제표 데이터를 읽을 수 없습니다. 빈 파일일 수 있습니다.');
+          // 경고만 표시하고 진행 (분석 화면에서 처리)
+        }
+
+        setFinancialStatementWorkbook(loadedWorkbook);
+        
+        toast({
+          title: '성공',
+          description: `재무제표 파일을 불러왔습니다.${financialData.length > 0 ? ` (${financialData.length}개 항목)` : ''}`,
+        });
+        
+        // 분석 화면으로 자동 전환
+        setCurrentView('financial_statement');
+      } catch (err) {
+        toast({
+          title: '오류',
+          description: '엑셀 파일 파싱 중 오류가 발생했습니다.',
+          variant: 'destructive',
+        });
       }
     };
     reader.readAsArrayBuffer(file);
@@ -664,22 +798,29 @@ const AdvancedLedgerAnalysis = () => {
   const currentAccountData = useMemo(() => {
     if (!workbook || !selectedAccount) return [];
     const worksheet = workbook.Sheets[selectedAccount];
-    const { data, orderedHeaders } = getDataFromSheet(worksheet);
-    // orderedHeaders를 데이터에 메타데이터로 저장
-    if (data.length > 0 && orderedHeaders.length > 0) {
-      // 디버깅: 원본 헤더 출력
-      console.log('📋 원본 Excel 헤더 (orderedHeaders):', orderedHeaders);
-      console.log('📋 파싱된 헤더 (Object.keys):', Object.keys(data[0] || {}));
-    }
-    return data;
-  }, [workbook, selectedAccount]);
-
-  // orderedHeaders를 별도로 저장
-  const currentOrderedHeaders = useMemo(() => {
-    if (!workbook || !selectedAccount) return [];
-    const worksheet = workbook.Sheets[selectedAccount];
-    const { orderedHeaders } = getDataFromSheet(worksheet);
-    return orderedHeaders;
+    const { data } = getDataFromSheet(worksheet);
+    
+    // 추가 필터링: 월계/누계 행 제거 (안전장치)
+    const filteredData = data.filter(row => {
+      const isMonthlyOrCumulative = Object.values(row).some(val => {
+        if (val === null || val === undefined) return false;
+        const str = String(val).trim();
+        const normalized = str.replace(/\s/g, '');
+        return normalized.includes('월계') || 
+               normalized.includes('누계') ||
+               normalized.includes('[월계]') || 
+               normalized.includes('[누계]') ||
+               normalized === '월계' ||
+               normalized === '누계' ||
+               str.includes('[ 월계 ]') ||
+               str.includes('[ 누계 ]') ||
+               str.includes('[월 계]') ||
+               str.includes('[누 계]');
+      });
+      return !isMonthlyOrCumulative;
+    });
+    
+    return filteredData;
   }, [workbook, selectedAccount]);
 
   const amountColumns = useMemo(() => {
@@ -808,6 +949,83 @@ const AdvancedLedgerAnalysis = () => {
       );
     }
 
+    // Financial Statement Analysis
+    if (currentView === 'financial_statement') {
+      if (!financialStatementWorkbook) {
+        return (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUpIcon className="h-5 w-5" />
+                    재무제표 증감 분석
+                  </CardTitle>
+                  <Button variant="outline" onClick={() => setCurrentView('selection')}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    돌아가기
+                  </Button>
+                </div>
+                <CardDescription>
+                  재무상태표 파일을 업로드하여 계정별 증감을 분석합니다.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div
+                  className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                    isDraggingFinancialStatement ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+                  }`}
+                  onClick={() => financialStatementFileInputRef.current?.click()}
+                  onDragOver={handleDragOver}
+                  onDragEnter={(e) => handleDragEnter(e, setIsDraggingFinancialStatement)}
+                  onDragLeave={(e) => handleDragLeave(e, setIsDraggingFinancialStatement)}
+                  onDrop={(e) => handleDrop(e, setIsDraggingFinancialStatement, handleFinancialStatementFile)}
+                >
+                  <input
+                    type="file"
+                    ref={financialStatementFileInputRef}
+                    onChange={(e) => handleFinancialStatementFile(e.target.files?.[0])}
+                    style={{ display: 'none' }}
+                    accept=".xlsx, .xls"
+                  />
+                  <Upload className="h-12 w-12 mx-auto mb-4 text-primary" />
+                  <p className="text-sm text-muted-foreground">
+                    재무제표 파일을 드래그하거나 클릭하여 업로드
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    엑셀 파일 (.xlsx, .xls) - "과목", "당기", "전기" 컬럼이 필요합니다.
+                  </p>
+                </div>
+                {financialStatementFileName && (
+                  <div className="mt-4 flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    <span className="text-sm font-medium text-green-900 dark:text-green-100">{financialStatementFileName}</span>
+                    <Badge variant="outline" className="ml-auto bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700">
+                      업로드 완료
+                    </Badge>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        );
+      }
+      return (
+        <FinancialStatementAnalysis 
+          workbook={financialStatementWorkbook}
+          onBack={() => {
+            setFinancialStatementWorkbook(null);
+            setFinancialStatementFileName('');
+            setCurrentView('selection');
+          }}
+          getFinancialStatementData={getFinancialStatementData}
+          ledgerWorkbook={workbook}
+          previousLedgerWorkbook={previousWorkbook}
+          getDataFromSheet={getDataFromSheet}
+        />
+      );
+    }
+
     // Benford Analysis (Fully Implemented)
     if (currentView === 'benford') {
       return (
@@ -892,8 +1110,157 @@ const AdvancedLedgerAnalysis = () => {
                   variant="outline"
                   onClick={() => {
                     const wb = XLSX.utils.book_new();
-                    const ws = XLSX.utils.json_to_sheet(currentAccountData);
-                    XLSX.utils.book_append_sheet(wb, ws, selectedAccount);
+                    
+                    // 월별 차변/대변 요약 데이터 준비 (화면과 동일한 로직 사용)
+                    const headers = Object.keys(currentAccountData[0] || {});
+                    const dateHeader = headers.find(h => {
+                      const clean = h.replace(/\s/g, '').toLowerCase();
+                      return clean.includes('일자') || clean.includes('날짜') || clean.includes('date');
+                    });
+                    const debitHeader = headers.find(h => {
+                      const clean = h.replace(/\s/g, '').toLowerCase();
+                      return clean.includes('차변') || clean.includes('debit') || clean === '차변' || clean === 'debit';
+                    }) || headers.find(h => {
+                      const clean = h.toLowerCase();
+                      return clean.includes('차변') || clean.includes('debit');
+                    });
+                    const creditHeader = headers.find(h => {
+                      const clean = h.replace(/\s/g, '').toLowerCase();
+                      return clean.includes('대변') || clean.includes('credit') || clean === '대변' || clean === 'credit';
+                    }) || headers.find(h => {
+                      const clean = h.toLowerCase();
+                      return clean.includes('대변') || clean.includes('credit');
+                    });
+                    
+                    // 차변 헤더 자동 탐지 (화면과 동일)
+                    let foundDebitHeader = debitHeader;
+                    if (!foundDebitHeader && currentAccountData.length > 0) {
+                      const numericColumns = new Map<string, number>();
+                      currentAccountData.forEach(row => {
+                        Object.entries(row).forEach(([key, value]) => {
+                          if (key === creditHeader || key === dateHeader) return;
+                          const cleanKey = key.replace(/\s/g, '').toLowerCase();
+                          if (!cleanKey.includes('대변') && !cleanKey.includes('credit') && 
+                              !cleanKey.includes('일자') && !cleanKey.includes('날짜') &&
+                              !cleanKey.includes('잔액') && !cleanKey.includes('balance') &&
+                              !cleanKey.includes('적요') && !cleanKey.includes('거래처') &&
+                              !cleanKey.includes('코드') && !cleanKey.includes('내용')) {
+                            const numVal = cleanAmount(value);
+                            if (numVal !== 0) {
+                              numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
+                            }
+                          }
+                        });
+                      });
+                      if (numericColumns.size > 0) {
+                        const sortedColumns = Array.from(numericColumns.entries())
+                          .sort((a, b) => b[1] - a[1]);
+                        foundDebitHeader = sortedColumns[0][0];
+                      }
+                    }
+                    
+                    // 대변 헤더 자동 탐지 (화면과 동일)
+                    let foundCreditHeader = creditHeader;
+                    if (!foundCreditHeader && currentAccountData.length > 0) {
+                      const numericColumns = new Map<string, number>();
+                      currentAccountData.forEach(row => {
+                        Object.entries(row).forEach(([key, value]) => {
+                          if (key === foundDebitHeader || key === dateHeader) return;
+                          const cleanKey = key.replace(/\s/g, '').toLowerCase();
+                          if (!cleanKey.includes('차변') && !cleanKey.includes('debit') && 
+                              !cleanKey.includes('일자') && !cleanKey.includes('날짜') &&
+                              !cleanKey.includes('잔액') && !cleanKey.includes('balance') &&
+                              !cleanKey.includes('적요') && !cleanKey.includes('거래처') &&
+                              !cleanKey.includes('코드') && !cleanKey.includes('내용')) {
+                            const numVal = cleanAmount(value);
+                            if (numVal !== 0) {
+                              numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
+                            }
+                          }
+                        });
+                      });
+                      if (numericColumns.size > 0) {
+                        const sortedColumns = Array.from(numericColumns.entries())
+                          .sort((a, b) => b[1] - a[1]);
+                        foundCreditHeader = sortedColumns[0][0];
+                      }
+                    }
+                    
+                    // 잔액 컬럼이 차변/대변으로 잘못 인식되지 않았는지 확인
+                    if (foundDebitHeader && foundDebitHeader.toLowerCase().includes('잔액')) {
+                      const correctDebitHeader = headers.find(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        return (clean.includes('차변') || clean.includes('debit')) && 
+                               !clean.includes('잔액') && !clean.includes('balance');
+                      });
+                      if (correctDebitHeader) {
+                        foundDebitHeader = correctDebitHeader;
+                      }
+                    }
+                    
+                    if (foundCreditHeader && foundCreditHeader.toLowerCase().includes('잔액')) {
+                      const correctCreditHeader = headers.find(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        return (clean.includes('대변') || clean.includes('credit')) && 
+                               !clean.includes('잔액') && !clean.includes('balance');
+                      });
+                      if (correctCreditHeader) {
+                        foundCreditHeader = correctCreditHeader;
+                      }
+                    }
+                    
+                    if (dateHeader && (foundDebitHeader || foundCreditHeader)) {
+                      const monthlyDataMap = new Map<string, { debit: number; credit: number }>();
+                      
+                      currentAccountData.forEach(row => {
+                        const date = row[dateHeader];
+                        if (!(date instanceof Date)) return;
+                        
+                        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                        const debit = foundDebitHeader ? cleanAmount(row[foundDebitHeader]) : 0;
+                        const credit = foundCreditHeader ? cleanAmount(row[foundCreditHeader]) : 0;
+                        
+                        if (!monthlyDataMap.has(monthKey)) {
+                          monthlyDataMap.set(monthKey, { debit: 0, credit: 0 });
+                        }
+                        
+                        const monthly = monthlyDataMap.get(monthKey)!;
+                        monthly.debit += debit;
+                        monthly.credit += credit;
+                      });
+                      
+                      const sortedMonths = Array.from(monthlyDataMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+                      let balance = 0;
+                      
+                      const monthlySummary = sortedMonths.map(([month, data]) => {
+                        balance += data.debit - data.credit;
+                        return {
+                          월: month,
+                          차변: data.debit,
+                          대변: data.credit,
+                          잔액: balance
+                        };
+                      });
+                      
+                      // 합계 행 추가
+                      const totalDebit = sortedMonths.reduce((sum, [, data]) => sum + data.debit, 0);
+                      const totalCredit = sortedMonths.reduce((sum, [, data]) => sum + data.credit, 0);
+                      const finalBalance = sortedMonths.reduce((sum, [, data]) => sum + (data.debit - data.credit), 0);
+                      monthlySummary.push({
+                        월: '합계',
+                        차변: totalDebit,
+                        대변: totalCredit,
+                        잔액: finalBalance
+                      });
+                      
+                      const wsMonthly = XLSX.utils.json_to_sheet(monthlySummary);
+                      XLSX.utils.book_append_sheet(wb, wsMonthly, '월별요약');
+                    }
+                    
+                    // 상세 거래 내역도 포함
+                    const wsDetail = XLSX.utils.json_to_sheet(currentAccountData);
+                    XLSX.utils.book_append_sheet(wb, wsDetail, '상세내역');
+                    
                     XLSX.writeFile(wb, `총계정원장_${selectedAccount}_${new Date().toISOString().split('T')[0]}.xlsx`);
                     toast({
                       title: '다운로드 완료',
@@ -916,42 +1283,145 @@ const AdvancedLedgerAnalysis = () => {
                   </CardHeader>
                   <CardContent>
                     {(() => {
-                      // 원본 헤더(orderedHeaders)를 우선 사용, 없으면 Object.keys 사용
-                      const headers = currentOrderedHeaders.length > 0 ? currentOrderedHeaders : Object.keys(currentAccountData[0] || {});
+                      const headers = Object.keys(currentAccountData[0] || {});
                       
-                      // 디버깅: 헤더 출력 (상세)
-                      console.log('📊 총계정원장 헤더 (원본 orderedHeaders):', currentOrderedHeaders);
-                      console.log('📊 총계정원장 헤더 (사용할 헤더):', headers);
-                      console.log('📊 총계정원장 헤더 (상세):', headers.map((h, i) => `${i}: "${h}" (길이: ${h?.length || 0})`));
+                      // 디버깅: 헤더 출력
+                      console.log('📊 총계정원장 헤더:', headers);
                       
-                      // robustFindHeader 함수를 사용하여 더 강력한 헤더 찾기
-                      const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date', '일  자', '거래일자']);
-                      const debitHeader = robustFindHeader(headers, ['차변', 'debit', '차  변']);
-                      const creditHeader = robustFindHeader(headers, ['대변', 'credit', '대  변']);
-                      const balanceHeader = robustFindHeader(headers, ['잔액', 'balance', '잔  액']);
+                      const dateHeader = headers.find(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        return clean.includes('일자') || clean.includes('날짜') || clean.includes('date');
+                      });
+                      const debitHeader = headers.find(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        return clean.includes('차변') || clean.includes('debit') || clean === '차변' || clean === 'debit';
+                      }) || headers.find(h => {
+                        // 더 유연한 검색: 공백이 있는 경우도 처리
+                        const clean = h.toLowerCase();
+                        return clean.includes('차변') || clean.includes('debit');
+                      });
+                      const creditHeader = headers.find(h => {
+                        const clean = h.replace(/\s/g, '').toLowerCase();
+                        return clean.includes('대변') || clean.includes('credit') || clean === '대변' || clean === 'credit';
+                      }) || headers.find(h => {
+                        // 더 유연한 검색: 공백이 있는 경우도 처리
+                        const clean = h.toLowerCase();
+                        return clean.includes('대변') || clean.includes('credit');
+                      });
+                      
+                      // 차변 헤더를 찾지 못한 경우, 실제 데이터에서 차변 값이 있는 컬럼 찾기
+                      let foundDebitHeader = debitHeader;
+                      if (!foundDebitHeader && currentAccountData.length > 0) {
+                        // 모든 행을 확인하여 대변이 아닌 숫자 컬럼 찾기
+                        const numericColumns = new Map<string, number>();
+                        
+                        currentAccountData.forEach(row => {
+                          Object.entries(row).forEach(([key, value]) => {
+                            if (key === creditHeader || key === dateHeader) return;
+                            const cleanKey = key.replace(/\s/g, '').toLowerCase();
+                            // 대변, 일자, 날짜, 잔액, balance가 아닌 컬럼만 확인
+                            if (!cleanKey.includes('대변') && !cleanKey.includes('credit') && 
+                                !cleanKey.includes('일자') && !cleanKey.includes('날짜') &&
+                                !cleanKey.includes('잔액') && !cleanKey.includes('balance') &&
+                                !cleanKey.includes('적요') && !cleanKey.includes('거래처') &&
+                                !cleanKey.includes('코드') && !cleanKey.includes('내용')) {
+                              const numVal = cleanAmount(value);
+                              if (numVal !== 0) {
+                                numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
+                              }
+                            }
+                          });
+                        });
+                        
+                        // 가장 많은 값이 있는 컬럼을 차변으로 간주
+                        if (numericColumns.size > 0) {
+                          const sortedColumns = Array.from(numericColumns.entries())
+                            .sort((a, b) => b[1] - a[1]);
+                          foundDebitHeader = sortedColumns[0][0];
+                          console.log(`🔍 차변 헤더 자동 발견: "${foundDebitHeader}" (총 ${sortedColumns[0][1].toLocaleString()})`);
+                        }
+                      }
+                      
+                      // 대변 헤더를 찾지 못한 경우, 실제 데이터에서 대변 값이 있는 컬럼 찾기
+                      let foundCreditHeader = creditHeader;
+                      if (!foundCreditHeader && currentAccountData.length > 0) {
+                        // 모든 행을 확인하여 차변이 아닌 숫자 컬럼 찾기
+                        const numericColumns = new Map<string, number>();
+                        
+                        currentAccountData.forEach(row => {
+                          Object.entries(row).forEach(([key, value]) => {
+                            if (key === debitHeader || key === dateHeader) return;
+                            const cleanKey = key.replace(/\s/g, '').toLowerCase();
+                            // 차변, 일자, 날짜, 잔액, balance가 아닌 컬럼만 확인
+                            if (!cleanKey.includes('차변') && !cleanKey.includes('debit') && 
+                                !cleanKey.includes('일자') && !cleanKey.includes('날짜') &&
+                                !cleanKey.includes('잔액') && !cleanKey.includes('balance') &&
+                                !cleanKey.includes('적요') && !cleanKey.includes('거래처') &&
+                                !cleanKey.includes('코드') && !cleanKey.includes('내용')) {
+                              const numVal = cleanAmount(value);
+                              if (numVal !== 0) {
+                                numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
+                              }
+                            }
+                          });
+                        });
+                        
+                        // 가장 많은 값이 있는 컬럼을 대변으로 간주
+                        if (numericColumns.size > 0) {
+                          const sortedColumns = Array.from(numericColumns.entries())
+                            .sort((a, b) => b[1] - a[1]);
+                          foundCreditHeader = sortedColumns[0][0];
+                          console.log(`🔍 대변 헤더 자동 발견: "${foundCreditHeader}" (총 ${sortedColumns[0][1].toLocaleString()})`);
+                        }
+                      }
+                      
+                      const finalCreditHeader = foundCreditHeader;
+                      
+                      // 잔액 컬럼이 차변으로 잘못 인식되지 않았는지 확인
+                      if (foundDebitHeader && foundDebitHeader.toLowerCase().includes('잔액')) {
+                        console.error('❌ 오류: 잔액 컬럼이 차변으로 잘못 인식되었습니다!');
+                        // 원래 debitHeader를 사용하거나, 차변 헤더를 다시 찾기
+                        const correctDebitHeader = headers.find(h => {
+                          const clean = h.replace(/\s/g, '').toLowerCase();
+                          return (clean.includes('차변') || clean.includes('debit')) && 
+                                 !clean.includes('잔액') && !clean.includes('balance');
+                        });
+                        if (correctDebitHeader) {
+                          console.log(`✅ 올바른 차변 헤더로 수정: "${correctDebitHeader}"`);
+                          foundDebitHeader = correctDebitHeader;
+                        }
+                      }
+                      
+                      // 잔액 컬럼이 대변으로 잘못 인식되지 않았는지 확인
+                      if (foundCreditHeader && foundCreditHeader.toLowerCase().includes('잔액')) {
+                        console.error('❌ 오류: 잔액 컬럼이 대변으로 잘못 인식되었습니다!');
+                        // 원래 creditHeader를 사용하거나, 대변 헤더를 다시 찾기
+                        const correctCreditHeader = headers.find(h => {
+                          const clean = h.replace(/\s/g, '').toLowerCase();
+                          return (clean.includes('대변') || clean.includes('credit')) && 
+                                 !clean.includes('잔액') && !clean.includes('balance');
+                        });
+                        if (correctCreditHeader) {
+                          console.log(`✅ 올바른 대변 헤더로 수정: "${correctCreditHeader}"`);
+                          foundCreditHeader = correctCreditHeader;
+                        }
+                      }
+                      
+                      const finalDebitHeader = foundDebitHeader;
+                      const finalCreditHeaderCorrected = foundCreditHeader;
                       
                       console.log('📌 찾은 헤더:', { 
-                        dateHeader: dateHeader || '❌ 없음', 
-                        debitHeader: debitHeader || '❌ 없음', 
-                        creditHeader: creditHeader || '❌ 없음',
-                        balanceHeader: balanceHeader || '❌ 없음'
+                        dateHeader, 
+                        debitHeader: debitHeader || '없음',
+                        finalDebitHeader: finalDebitHeader || '없음',
+                        creditHeader: creditHeader || '없음',
+                        finalCreditHeader: finalCreditHeaderCorrected || '없음',
+                        isDebitAutoDetected: !debitHeader && foundDebitHeader !== debitHeader,
+                        isCreditAutoDetected: !creditHeader && foundCreditHeader !== creditHeader,
+                        allHeaders: headers
                       });
                       
-                      // 각 헤더의 정확한 내용 확인
-                      headers.forEach(h => {
-                        const clean = h.replace(/\s/g, '').toLowerCase();
-                        if (clean.includes('차변') || clean.includes('debit')) {
-                          console.log(`🔍 차변 후보 발견: "${h}" (정리 후: "${clean}")`);
-                        }
-                        if (clean.includes('대변') || clean.includes('credit')) {
-                          console.log(`🔍 대변 후보 발견: "${h}" (정리 후: "${clean}")`);
-                        }
-                        if (clean.includes('잔액') || clean.includes('balance')) {
-                          console.log(`🔍 잔액 후보 발견: "${h}" (정리 후: "${clean}")`);
-                        }
-                      });
-                      
-                      if (!dateHeader || (!debitHeader && !creditHeader)) {
+                      if (!dateHeader || (!finalDebitHeader && !finalCreditHeaderCorrected)) {
                         return (
                           <div className="space-y-2">
                             <p className="text-sm text-muted-foreground">
@@ -959,8 +1429,8 @@ const AdvancedLedgerAnalysis = () => {
                             </p>
                             <div className="text-xs text-muted-foreground bg-yellow-50 dark:bg-yellow-950 p-2 rounded">
                               <p>일자: {dateHeader || '❌ 없음'}</p>
-                              <p>차변: {debitHeader || '❌ 없음'}</p>
-                              <p>대변: {creditHeader || '❌ 없음'}</p>
+                              <p>차변: {finalDebitHeader || '❌ 없음'}</p>
+                              <p>대변: {finalCreditHeaderCorrected || '❌ 없음'}</p>
                               <p className="mt-2">전체 헤더: {headers.join(', ')}</p>
                             </div>
                           </div>
@@ -969,13 +1439,51 @@ const AdvancedLedgerAnalysis = () => {
                       
                       const monthlyData = new Map<string, { debit: number; credit: number }>();
                       
+                      // 디버깅: 차변/대변 데이터 확인
+                      let debugDebitCount = 0;
+                      let debugDebitTotal = 0;
+                      let debugCreditCount = 0;
+                      let debugCreditTotal = 0;
+                      
                       currentAccountData.forEach(row => {
                         const date = row[dateHeader];
                         if (!(date instanceof Date)) return;
                         
                         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                        const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
-                        const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
+                        const debit = finalDebitHeader ? cleanAmount(row[finalDebitHeader]) : 0;
+                        const credit = finalCreditHeaderCorrected ? cleanAmount(row[finalCreditHeaderCorrected]) : 0;
+                        
+                        // 디버깅: 차변 값이 있는 경우 카운트
+                        if (debit !== 0) {
+                          debugDebitCount++;
+                          debugDebitTotal += debit;
+                        }
+                        
+                        // 디버깅: 대변 값이 있는 경우 카운트
+                        if (credit !== 0) {
+                          debugCreditCount++;
+                          debugCreditTotal += credit;
+                        }
+                        
+                        // 디버깅: 첫 몇 건의 원본 데이터 확인
+                        if (debugDebitCount <= 3 && debit !== 0) {
+                          console.log(`🔍 차변 데이터 샘플:`, {
+                            month: monthKey,
+                            debitValue: debit,
+                            originalValue: finalDebitHeader ? row[finalDebitHeader] : 'N/A',
+                            debitHeader: finalDebitHeader
+                          });
+                        }
+                        
+                        // 디버깅: 첫 몇 건의 원본 데이터 확인
+                        if (debugCreditCount <= 3 && credit !== 0) {
+                          console.log(`🔍 대변 데이터 샘플:`, {
+                            month: monthKey,
+                            creditValue: credit,
+                            originalValue: finalCreditHeaderCorrected ? row[finalCreditHeaderCorrected] : 'N/A',
+                            creditHeader: finalCreditHeaderCorrected
+                          });
+                        }
                         
                         if (!monthlyData.has(monthKey)) {
                           monthlyData.set(monthKey, { debit: 0, credit: 0 });
@@ -986,8 +1494,38 @@ const AdvancedLedgerAnalysis = () => {
                         monthly.credit += credit;
                       });
                       
+                      // 디버깅 로그
+                      if (debugDebitCount > 0) {
+                        console.log(`📊 차변 데이터 발견: ${debugDebitCount}건, 총액: ${debugDebitTotal.toLocaleString()}, 헤더: ${finalDebitHeader}`);
+                      } else {
+                        console.log(`⚠️ 차변 데이터 없음 - 헤더: ${finalDebitHeader || '없음'}, 샘플 데이터:`, 
+                          currentAccountData.slice(0, 3).map(r => ({ 
+                            debit: finalDebitHeader ? r[finalDebitHeader] : 'N/A',
+                            credit: finalCreditHeaderCorrected ? r[finalCreditHeaderCorrected] : 'N/A',
+                            allKeys: Object.keys(r)
+                          }))
+                        );
+                      }
+                      
+                      if (debugCreditCount > 0) {
+                        console.log(`📊 대변 데이터 발견: ${debugCreditCount}건, 총액: ${debugCreditTotal.toLocaleString()}, 헤더: ${finalCreditHeaderCorrected}`);
+                      } else {
+                        console.log(`⚠️ 대변 데이터 없음 - 헤더: ${finalCreditHeaderCorrected || '없음'}, 샘플 데이터:`, 
+                          currentAccountData.slice(0, 3).map(r => ({ 
+                            debit: finalDebitHeader ? r[finalDebitHeader] : 'N/A',
+                            credit: finalCreditHeaderCorrected ? r[finalCreditHeaderCorrected] : 'N/A',
+                            allKeys: Object.keys(r)
+                          }))
+                        );
+                      }
+                      
                       const sortedMonths = Array.from(monthlyData.entries()).sort((a, b) => a[0].localeCompare(b[0]));
                       let balance = 0;
+                      
+                      // 합계 계산
+                      const totalDebit = sortedMonths.reduce((sum, [, data]) => sum + data.debit, 0);
+                      const totalCredit = sortedMonths.reduce((sum, [, data]) => sum + data.credit, 0);
+                      const finalBalance = sortedMonths.reduce((sum, [, data]) => sum + (data.debit - data.credit), 0);
                       
                       return (
                         <div className="rounded-md border">
@@ -1012,6 +1550,13 @@ const AdvancedLedgerAnalysis = () => {
                                   </TableRow>
                                 );
                               })}
+                              {/* 합계 행 */}
+                              <TableRow className="font-bold bg-muted">
+                                <TableCell>합계</TableCell>
+                                <TableCell className="text-right">{totalDebit.toLocaleString()}</TableCell>
+                                <TableCell className="text-right">{totalCredit.toLocaleString()}</TableCell>
+                                <TableCell className="text-right">{finalBalance.toLocaleString()}</TableCell>
+                              </TableRow>
                             </TableBody>
                           </Table>
                         </div>
@@ -1036,15 +1581,36 @@ const AdvancedLedgerAnalysis = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {currentAccountData.slice(0, 100).map((row, idx) => (
+                          {currentAccountData.slice(0, 100).map((row, idx) => {
+                            const headers = Object.keys(currentAccountData[0] || {});
+                            return (
                             <TableRow key={idx}>
-                              {Object.values(row).map((val, j) => (
-                                <TableCell key={j} className="text-sm">
-                                  {val instanceof Date ? val.toLocaleDateString() : String(val ?? '')}
+                                {headers.map((key, j) => {
+                                  const val = row[key];
+                                  // 숫자 값인 경우 (차변, 대변, 금액 등)
+                                  const numVal = cleanAmount(val);
+                                  const isAmountColumn = key.includes('차변') || 
+                                                        key.includes('대변') || 
+                                                        key.includes('금액') ||
+                                                        key.toLowerCase().includes('debit') ||
+                                                        key.toLowerCase().includes('credit') ||
+                                                        key.toLowerCase().includes('amount');
+                                  
+                                  return (
+                                    <TableCell key={j} className={`text-sm ${isAmountColumn ? 'text-right' : ''}`}>
+                                      {val instanceof Date 
+                                        ? val.toLocaleDateString() 
+                                        : isAmountColumn && numVal !== 0
+                                        ? numVal.toLocaleString()
+                                        : val !== null && val !== undefined
+                                        ? String(val)
+                                        : ''}
                                 </TableCell>
-                              ))}
+                                  );
+                                })}
                             </TableRow>
-                          ))}
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>
@@ -1604,7 +2170,7 @@ ${analysisQuestion}
                 취소
               </Button>
               <Button
-                onClick={async () => {
+                onClick={() => {
                   if (!apiKeyInput.trim()) {
                     toast({
                       title: '오류',
@@ -1613,66 +2179,18 @@ ${analysisQuestion}
                     });
                     return;
                   }
-                  const trimmedKey = apiKeyInput.trim();
-                  if (trimmedKey.length < 30) {
-                    toast({
-                      title: '경고',
-                      description: 'API Key가 너무 짧습니다. 전체 API Key를 복사했는지 확인하세요.',
-                      variant: 'destructive',
-                    });
-                    return;
-                  }
-                  
-                  // API Key 형식 검증
-                  if (!trimmedKey.startsWith('AIza')) {
-                    toast({
-                      title: '경고',
-                      description: 'API Key가 "AIza"로 시작하지 않습니다. Google AI Studio에서 발급한 API Key인지 확인하세요.',
-                      variant: 'destructive',
-                    });
-                    // 경고만 표시하고 계속 진행 (사용자가 확인할 수 있도록)
-                  }
-                  
-                  // API Key 테스트
+                  saveApiKey(apiKeyInput.trim());
+                  setApiKeyExists(true);
+                  setShowApiKeyDialog(false);
                   toast({
-                    title: '테스트 중',
-                    description: 'API Key 유효성을 확인하는 중입니다...',
+                    title: '성공',
+                    description: 'API Key가 저장되었습니다. 이제 AI 분석을 사용할 수 있습니다.',
                   });
-                  
-                  try {
-                    const testResult = await testApiKey(trimmedKey);
-                    if (testResult.valid) {
-                      saveApiKey(trimmedKey);
-                      setApiKeyExists(true);
-                      setShowApiKeyDialog(false);
-                      toast({
-                        title: '성공',
-                        description: 'API Key가 유효하며 저장되었습니다. 이제 AI 분석을 사용할 수 있습니다.',
-                      });
-                    } else {
-                      toast({
-                        title: 'API Key 테스트 실패',
-                        description: testResult.message + '\n\nAPI Key를 확인하고 다시 시도해주세요.',
-                        variant: 'destructive',
-                      });
-                    }
-                  } catch (error: any) {
-                    console.error('API Key 테스트 오류:', error);
-                    // 테스트 실패해도 저장은 진행 (네트워크 문제일 수 있음)
-                    saveApiKey(trimmedKey);
-                    setApiKeyExists(true);
-                    setShowApiKeyDialog(false);
-                    toast({
-                      title: '저장 완료 (테스트 실패)',
-                      description: 'API Key가 저장되었지만 테스트에 실패했습니다. 네트워크 문제일 수 있으니 AI 분석 시도 시 확인해주세요.',
-                      variant: 'default',
-                    });
-                  }
                 }}
                 className="flex-1"
                 disabled={!apiKeyInput.trim()}
               >
-                저장 및 테스트
+                저장
               </Button>
             </div>
           </div>

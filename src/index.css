@@ -101,5 +101,128 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    font-size: 12px; /* 본문 기본 폰트 12px */
+  }
+  
+  /* 본문 텍스트 기본 크기 */
+  p, span, div, td, li {
+    font-size: 12px;
+  }
+  
+  /* 제목 행 폰트 크기 14px */
+  h1, h2, h3, h4, h5, h6,
+  .text-xl, .text-2xl, .text-lg,
+  [class*="CardTitle"],
+  [class*="title"],
+  th, thead {
+    font-size: 14px !important;
+  }
+  
+  /* 작은 텍스트는 더 작게 */
+  .text-xs, .text-sm {
+    font-size: 10px;
+  }
+}
+
+/* 컨테이너 너비를 80%로 조정 (80vw) */
+@layer components {
+  .container,
+  .container.mx-auto {
+    max-width: 80vw !important;
+    width: 100% !important;
+  }
+  
+  /* 반응형: 작은 화면(모바일)에서는 조정하지 않음 */
+  @media (max-width: 640px) {
+    .container,
+    .container.mx-auto {
+      max-width: 100% !important;
+    }
+  }
+}
+
+/* 페이지 최상위 컨테이너 너비 제한 - 가장 강력하게 적용 */
+/* @layer 밖에 직접 적용하여 최고 우선순위 보장 */
+html {
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+/* #root 자체는 제한하지 않음 */
+#root {
+  width: 100%;
+}
+
+/* App.tsx의 wrapper div - 전체 앱을 감싸는 div */
+#root > div:first-of-type {
+  max-width: 80vw !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* BrowserRouter 내부의 모든 직접 자식 (각 페이지 컴포넌트) */
+#root > div > div > div > div,
+#root div.min-h-screen.bg-background {
+  max-width: 80vw !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 모든 min-h-screen 클래스를 가진 요소 - 가장 구체적으로 */
+div.min-h-screen.bg-background {
+  max-width: 80vw !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 더 일반적인 min-h-screen 선택자 */
+div.min-h-screen {
+  max-width: 80vw !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* w-full과 함께 사용되는 경우에도 강제 적용 - 가장 구체적인 선택자 */
+div.min-h-screen.w-full,
+div.min-h-screen.bg-background.w-full,
+div.min-h-screen.bg-background.mx-auto.w-full,
+div.min-h-screen.bg-background.mx-auto {
+  max-width: 80vw !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 모든 페이지의 최상위 div에 강제 적용 - 가장 강력한 선택자 */
+#root > div > div > div > div.min-h-screen,
+#root > div > div > div > div.min-h-screen.bg-background,
+#root > div > div > div > div.min-h-screen.bg-background.mx-auto,
+#root > div > div > div > div.min-h-screen.bg-background.mx-auto.w-full {
+  max-width: 80vw !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+@media (max-width: 640px) {
+  #root > div:first-of-type,
+  #root > div > div > div > div,
+  #root div.min-h-screen.bg-background,
+  div.min-h-screen,
+  div.min-h-screen.bg-background {
+    max-width: 100% !important;
   }
 }

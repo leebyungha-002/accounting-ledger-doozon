@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -65,7 +65,7 @@ const parseDate = (value: any): Date | null => {
 
 const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: LedgerRow[], headers: string[] } => {
   if (!worksheet) return { data: [], headers: [] };
-
+  
   const sheetDataAsArrays: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
   if (sheetDataAsArrays.length < 2) return { data: [], headers: [] };
 
@@ -148,11 +148,30 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
     return obj;
   });
 
-  // 필터링: 합계행, 빈행, 헤더 중복 제거
+    // 필터링: 합계행, 빈행, 헤더 중복 제거
   const data = rawData.filter(row => {
-    // 1. 합계 행 제거: [전 기 이 월], [월 계], [누 계] 등
-    const firstValue = Object.values(row)[0];
-    if (firstValue && String(firstValue).includes('[') && String(firstValue).includes(']')) {
+    // 1. 합계 행 제거: 모든 컬럼의 값을 확인하여 월계/누계 행 제거
+    const isMonthlyOrCumulative = Object.values(row).some(val => {
+      if (val === null || val === undefined) return false;
+      const str = String(val).trim();
+      // 공백 제거 후 정규화
+      const normalized = str.replace(/\s/g, '');
+      // 다양한 형태의 월계/누계 확인
+      return normalized.includes('월계') || 
+             normalized.includes('누계') ||
+             normalized.includes('[월계]') || 
+             normalized.includes('[누계]') ||
+             normalized === '월계' ||
+             normalized === '누계' ||
+             str.includes('[ 월계 ]') ||
+             str.includes('[ 누계 ]') ||
+             str.includes('[월 계]') ||
+             str.includes('[누 계]') ||
+             str.includes('[ 전 기 이 월 ]') ||
+             str.includes('[ 전기이월 ]');
+    });
+    
+    if (isMonthlyOrCumulative) {
       return false;
     }
     
@@ -204,8 +223,14 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
   const [searchResults, setSearchResults] = useState<LedgerRow[]>([]);
   const [vendorComboboxOpen, setVendorComboboxOpen] = useState(false);
   const [descriptionComboboxOpen, setDescriptionComboboxOpen] = useState(false);
-  const [displayMode, setDisplayMode] = useState<'detail' | 'monthly'>('detail');
+  const [displayMode, setDisplayMode] = useState<'detail' | 'monthly' | 'vendor'>('detail');
   const [amountFilter, setAmountFilter] = useState<'all' | 'debit' | 'credit'>('all');
+  const [selectedVendorForDrilldown, setSelectedVendorForDrilldown] = useState<string | null>(null);
+
+  // 표시 방식 변경 시 드릴다운 초기화
+  useEffect(() => {
+    setSelectedVendorForDrilldown(null);
+  }, [displayMode]);
 
   const allData = useMemo(() => {
     const result: { account: string; data: LedgerRow[]; headers: string[] }[] = [];
@@ -267,6 +292,63 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     
     return Array.from(descSet).sort();
   }, [allData]);
+
+  // 거래처별 합계 데이터 계산
+  const vendorData = useMemo(() => {
+    if (displayMode !== 'vendor' || searchResults.length === 0) return null;
+
+    const vendorHeader = Object.keys(searchResults[0] || {}).find(h => 
+      h.includes('거래처') || h.includes('업체') || h.includes('회사') ||
+      h.toLowerCase().includes('vendor') || h.toLowerCase().includes('customer')
+    );
+    const debitHeader = Object.keys(searchResults[0] || {}).find(h => 
+      h.includes('차변')
+    );
+    const creditHeader = Object.keys(searchResults[0] || {}).find(h => 
+      h.includes('대변')
+    );
+
+    if (!vendorHeader) return null;
+
+    const vendorMap = new Map<string, { 
+      debit: number; 
+      credit: number; 
+      balance: number;
+      count: number;
+      accounts: Set<string>;
+    }>();
+
+    searchResults.forEach(row => {
+      const vendor = String(row[vendorHeader] || '').trim();
+      if (!vendor || vendor === '') return;
+
+      const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
+      const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
+      const account = String(row['계정과목'] || '');
+
+      if (!vendorMap.has(vendor)) {
+        vendorMap.set(vendor, { debit: 0, credit: 0, balance: 0, count: 0, accounts: new Set() });
+      }
+
+      const vendorInfo = vendorMap.get(vendor)!;
+      vendorInfo.debit += debit;
+      vendorInfo.credit += credit;
+      vendorInfo.balance += (debit - credit);
+      vendorInfo.count++;
+      if (account) vendorInfo.accounts.add(account);
+    });
+
+    return Array.from(vendorMap.entries())
+      .map(([vendor, data]) => ({
+        거래처: vendor,
+        차변: data.debit,
+        대변: data.credit,
+        잔액: data.balance,
+        건수: data.count,
+        계정수: data.accounts.size,
+      }))
+      .sort((a, b) => (b.차변 + b.대변) - (a.차변 + a.대변));
+  }, [searchResults, displayMode]);
 
   // 월합계 데이터 계산
   const monthlyData = useMemo(() => {
@@ -432,10 +514,30 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       });
     });
 
-    setSearchResults(results);
+    // 월계/누계 행 제거
+    const filteredResults = results.filter(row => {
+      const isMonthlyOrCumulative = Object.values(row).some(val => {
+        if (val === null || val === undefined) return false;
+        const str = String(val).trim();
+        const normalized = str.replace(/\s/g, '');
+        return normalized.includes('월계') || 
+               normalized.includes('누계') ||
+               normalized.includes('[월계]') || 
+               normalized.includes('[누계]') ||
+               normalized === '월계' ||
+               normalized === '누계' ||
+               str.includes('[ 월계 ]') ||
+               str.includes('[ 누계 ]') ||
+               str.includes('[월 계]') ||
+               str.includes('[누 계]');
+      });
+      return !isMonthlyOrCumulative;
+    });
+
+    setSearchResults(filteredResults);
     toast({
       title: '검색 완료',
-      description: `${results.length}건의 거래를 찾았습니다.`,
+      description: `${filteredResults.length}건의 거래를 찾았습니다.`,
     });
   };
 
@@ -456,10 +558,25 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       const ws = XLSX.utils.json_to_sheet(monthlyData);
       XLSX.utils.book_append_sheet(wb, ws, '월합계');
       XLSX.writeFile(wb, `거래검색_월합계_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } else if (displayMode === 'vendor' && vendorData) {
+      // 거래처별 합계 다운로드
+      const ws = XLSX.utils.json_to_sheet(vendorData);
+      XLSX.utils.book_append_sheet(wb, ws, '거래처별합계');
+      XLSX.writeFile(wb, `거래검색_거래처별합계_${new Date().toISOString().split('T')[0]}.xlsx`);
     } else {
-      // 상세내역 다운로드
-      const ws = XLSX.utils.json_to_sheet(searchResults);
-      XLSX.utils.book_append_sheet(wb, ws, '검색결과');
+      // 상세내역 다운로드 - 계정명을 첫 번째 컬럼으로 추가
+      const dataWithAccount = searchResults.map(row => {
+        const accountName = row['계정과목'] || '';
+        const result: any = { '계정과목': accountName };
+        Object.keys(row).forEach(key => {
+          if (key !== '계정과목') {
+            result[key] = row[key];
+          }
+        });
+        return result;
+      });
+      const ws = XLSX.utils.json_to_sheet(dataWithAccount);
+    XLSX.utils.book_append_sheet(wb, ws, '검색결과');
       XLSX.writeFile(wb, `거래검색_상세내역_${new Date().toISOString().split('T')[0]}.xlsx`);
     }
 
@@ -525,7 +642,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                   <Command>
                     <CommandInput 
                       placeholder="거래처 검색..." 
-                      value={searchVendor}
+                value={searchVendor}
                       onValueChange={setSearchVendor}
                     />
                     <CommandList>
@@ -591,7 +708,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                   <Command>
                     <CommandInput 
                       placeholder="적요 검색..." 
-                      value={searchDescription}
+                value={searchDescription}
                       onValueChange={setSearchDescription}
                     />
                     <CommandList>
@@ -702,7 +819,9 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
             {/* 표시 방식 선택 */}
             <div className="space-y-2">
               <Label>표시 방식</Label>
-              <RadioGroup value={displayMode} onValueChange={(value) => setDisplayMode(value as 'detail' | 'monthly')}>
+              <RadioGroup value={displayMode} onValueChange={(value) => {
+                setDisplayMode(value as 'detail' | 'monthly' | 'vendor');
+              }}>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="detail" id="display-detail" />
                   <Label htmlFor="display-detail" className="font-normal cursor-pointer">상세내역</Label>
@@ -710,6 +829,10 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="monthly" id="display-monthly" />
                   <Label htmlFor="display-monthly" className="font-normal cursor-pointer">월합계</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="vendor" id="display-vendor" />
+                  <Label htmlFor="display-vendor" className="font-normal cursor-pointer">거래처별 합계</Label>
                 </div>
               </RadioGroup>
             </div>
@@ -732,16 +855,211 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
 
       {/* 검색 결과 */}
       {searchResults.length > 0 && (
-          <Card>
-            <CardHeader>
+        <Card>
+          <CardHeader>
               <CardTitle>
                 검색 결과 ({displayMode === 'monthly' && monthlyData 
-                  ? monthlyData.length.toLocaleString() + '개월' 
+                  ? monthlyData.length.toLocaleString() + '개월'
+                  : displayMode === 'vendor' && vendorData
+                  ? vendorData.length.toLocaleString() + '개 거래처'
                   : searchResults.length.toLocaleString() + '건'})
               </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {displayMode === 'monthly' && monthlyData ? (
+          </CardHeader>
+          <CardContent>
+              {displayMode === 'vendor' && vendorData ? (
+                <div className="space-y-4">
+            <div className="rounded-md border max-h-[600px] overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                          <TableHead>거래처</TableHead>
+                          <TableHead className="text-right">차변</TableHead>
+                          <TableHead className="text-right">대변</TableHead>
+                          <TableHead className="text-right">잔액</TableHead>
+                          <TableHead className="text-right">건수</TableHead>
+                          <TableHead className="text-right">계정수</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {vendorData.map((row, idx) => (
+                          <TableRow 
+                            key={idx}
+                            className={selectedVendorForDrilldown === row.거래처 ? 'bg-blue-50 dark:bg-blue-950' : ''}
+                          >
+                            <TableCell 
+                              className="font-medium cursor-pointer hover:underline text-blue-600 dark:text-blue-400"
+                              onClick={() => {
+                                if (selectedVendorForDrilldown === row.거래처) {
+                                  setSelectedVendorForDrilldown(null);
+                                } else {
+                                  setSelectedVendorForDrilldown(row.거래처);
+                                }
+                              }}
+                            >
+                              {row.거래처}
+                            </TableCell>
+                            <TableCell className="text-right">{row.차변.toLocaleString()}</TableCell>
+                            <TableCell className="text-right">{row.대변.toLocaleString()}</TableCell>
+                            <TableCell className="text-right font-medium">{row.잔액.toLocaleString()}</TableCell>
+                            <TableCell className="text-right">{row.건수.toLocaleString()}</TableCell>
+                            <TableCell className="text-right">{row.계정수.toLocaleString()}</TableCell>
+                          </TableRow>
+                        ))}
+                        {/* 합계 행 */}
+                        <TableRow className="font-bold bg-muted">
+                          <TableCell>합계</TableCell>
+                          <TableCell className="text-right">
+                            {vendorData.reduce((sum, row) => sum + row.차변, 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {vendorData.reduce((sum, row) => sum + row.대변, 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {vendorData.reduce((sum, row) => sum + row.잔액, 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {vendorData.reduce((sum, row) => sum + row.건수, 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">-</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                  
+                  {/* 거래처별 상세 내역 드릴다운 */}
+                  {selectedVendorForDrilldown && (
+                    <Card className="border-blue-200 dark:border-blue-800">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base">
+                            거래처: {selectedVendorForDrilldown} - 상세 내역
+                          </CardTitle>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedVendorForDrilldown(null)}
+                          >
+                            닫기
+                          </Button>
+                        </div>
+          </CardHeader>
+          <CardContent>
+                        <div className="flex justify-end mb-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const vendorResults = searchResults.filter(row => {
+                                const vendorHeader = Object.keys(row).find(h => 
+                                  h.includes('거래처') || h.includes('업체') || h.includes('회사')
+                                );
+                                return vendorHeader && String(row[vendorHeader] || '').trim() === selectedVendorForDrilldown;
+                              });
+                              
+                              const wb = XLSX.utils.book_new();
+                              const ws = XLSX.utils.json_to_sheet(vendorResults);
+                              XLSX.utils.book_append_sheet(wb, ws, '상세내역');
+                              XLSX.writeFile(wb, `거래처_${selectedVendorForDrilldown}_상세내역_${new Date().toISOString().split('T')[0]}.xlsx`);
+                              
+                              toast({
+                                title: '다운로드 완료',
+                                description: '거래처 상세 내역을 다운로드했습니다.',
+                              });
+                            }}
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            엑셀 다운로드
+                          </Button>
+                        </div>
+                        <div className="rounded-md border max-h-[400px] overflow-y-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                {Object.keys(searchResults[0] || {})
+                                  .filter(key => !key.includes('잔액') && !key.toLowerCase().includes('balance'))
+                                  .map(key => (
+                      <TableHead key={key}>{key}</TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                              {searchResults
+                                .filter(row => {
+                                  // 월계/누계 행 제거
+                                  const isMonthlyOrCumulative = Object.values(row).some(val => {
+                                    if (val === null || val === undefined) return false;
+                                    const str = String(val).trim();
+                                    const normalized = str.replace(/\s/g, '');
+                                    return normalized.includes('월계') || 
+                                           normalized.includes('누계') ||
+                                           normalized.includes('[월계]') || 
+                                           normalized.includes('[누계]') ||
+                                           normalized === '월계' ||
+                                           normalized === '누계' ||
+                                           str.includes('[ 월계 ]') ||
+                                           str.includes('[ 누계 ]') ||
+                                           str.includes('[월 계]') ||
+                                           str.includes('[누 계]');
+                                  });
+                                  if (isMonthlyOrCumulative) return false;
+                                  
+                                  // 거래처 필터
+                                  const vendorHeader = Object.keys(row).find(h => 
+                                    h.includes('거래처') || h.includes('업체') || h.includes('회사')
+                                  );
+                                  return vendorHeader && String(row[vendorHeader] || '').trim() === selectedVendorForDrilldown;
+                                })
+                                .slice(0, 100)
+                                .map((row, idx) => {
+                                  const headers = Object.keys(searchResults[0] || {})
+                                    .filter(key => !key.includes('잔액') && !key.toLowerCase().includes('balance'));
+                                  return (
+                    <TableRow key={idx}>
+                                      {headers.map((key, j) => {
+                                        const val = row[key];
+                                        const isAmountColumn = key.includes('차변') || 
+                                                              key.includes('대변') || 
+                                                              key.includes('금액') ||
+                                                              key.toLowerCase().includes('amount') ||
+                                                              key.toLowerCase().includes('debit') ||
+                                                              key.toLowerCase().includes('credit');
+                                        
+                                        if (isAmountColumn && (typeof val === 'number' || (typeof val === 'string' && !isNaN(parseFloat(String(val).replace(/,/g, ''))) && val.trim() !== ''))) {
+                                          const numVal = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, ''));
+                                          if (!isNaN(numVal) && numVal !== 0) {
+                                            return (
+                                              <TableCell key={j} className="text-sm text-right">
+                                                {numVal.toLocaleString()}
+                                              </TableCell>
+                                            );
+                                          }
+                                        }
+                                        
+                                        if (val instanceof Date) {
+                                          return (
+                                            <TableCell key={j} className="text-sm">
+                                              {val.toLocaleDateString()}
+                                            </TableCell>
+                                          );
+                                        }
+                                        
+                                        return (
+                        <TableCell key={j} className="text-sm">
+                                            {String(val ?? '')}
+                        </TableCell>
+                                        );
+                                      })}
+                                    </TableRow>
+                                  );
+                                })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              ) : displayMode === 'monthly' && monthlyData ? (
                 <div className="rounded-md border max-h-[600px] overflow-y-auto">
                   <Table>
                     <TableHeader>
@@ -763,42 +1081,104 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                           <TableCell className="text-right font-medium">{row.잔액.toLocaleString()}</TableCell>
                           <TableCell className="text-right">{row.건수.toLocaleString()}</TableCell>
                           <TableCell className="text-right">{row.계정수.toLocaleString()}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
               ) : (
                 <div className="rounded-md border max-h-[600px] overflow-y-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        {Object.keys(searchResults[0] || {}).map(key => (
-                          <TableHead key={key}>{key}</TableHead>
-                        ))}
+                        {Object.keys(searchResults[0] || {})
+                          .filter(key => !key.includes('잔액') && !key.toLowerCase().includes('balance'))
+                          .map(key => (
+                            <TableHead key={key}>{key}</TableHead>
+                          ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {searchResults.slice(0, 200).map((row, idx) => (
-                        <TableRow key={idx}>
-                          {Object.values(row).map((val, j) => (
-                            <TableCell key={j} className="text-sm">
-                              {val instanceof Date ? val.toLocaleDateString() : String(val ?? '')}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
+                      {searchResults
+                        .filter(row => {
+                          // 월계/누계 행 제거 - 모든 컬럼의 값을 확인
+                          const isMonthlyOrCumulative = Object.values(row).some(val => {
+                            if (val === null || val === undefined) return false;
+                            const str = String(val).trim();
+                            // 공백 제거 후 확인
+                            const normalized = str.replace(/\s/g, '');
+                            // 다양한 형태의 월계/누계 확인
+                            return normalized.includes('월계') || 
+                                   normalized.includes('누계') ||
+                                   normalized.includes('[월계]') || 
+                                   normalized.includes('[누계]') ||
+                                   normalized === '월계' ||
+                                   normalized === '누계' ||
+                                   str.includes('[ 월계 ]') ||
+                                   str.includes('[ 누계 ]') ||
+                                   str.includes('[월 계]') ||
+                                   str.includes('[누 계]');
+                          });
+                          return !isMonthlyOrCumulative;
+                        })
+                        .slice(0, 200)
+                        .map((row, idx) => {
+                          const headers = Object.keys(searchResults[0] || {})
+                            .filter(key => !key.includes('잔액') && !key.toLowerCase().includes('balance'));
+                          return (
+                            <TableRow key={idx}>
+                              {headers.map((key, j) => {
+                                const val = row[key];
+                                // 금액 관련 컬럼인지 확인
+                                const isAmountColumn = key.includes('차변') || 
+                                                      key.includes('대변') || 
+                                                      key.includes('금액') ||
+                                                      key.toLowerCase().includes('amount') ||
+                                                      key.toLowerCase().includes('debit') ||
+                                                      key.toLowerCase().includes('credit');
+                                
+                                // 숫자 값이고 금액 컬럼인 경우 천단위 구분기호 추가 (음수 포함)
+                                if (isAmountColumn && (typeof val === 'number' || (typeof val === 'string' && !isNaN(parseFloat(String(val).replace(/,/g, ''))) && val.trim() !== ''))) {
+                                  const numVal = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, ''));
+                                  if (!isNaN(numVal) && numVal !== 0) {
+                                    return (
+                                      <TableCell key={j} className="text-sm text-right">
+                                        {numVal.toLocaleString()}
+                                      </TableCell>
+                                    );
+                                  }
+                                }
+                                
+                                // 날짜인 경우
+                                if (val instanceof Date) {
+                                  return (
+                                    <TableCell key={j} className="text-sm">
+                                      {val.toLocaleDateString()}
+                                    </TableCell>
+                                  );
+                                }
+                                
+                                // 일반 값
+                                return (
+                                  <TableCell key={j} className="text-sm">
+                                    {String(val ?? '')}
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>
+                          );
+                        })}
                     </TableBody>
                   </Table>
                 </div>
               )}
               {displayMode === 'detail' && searchResults.length > 200 && (
-                <p className="text-sm text-muted-foreground text-center mt-4">
-                  상위 200건만 표시됩니다. 전체 결과는 다운로드로 확인하세요.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+              <p className="text-sm text-muted-foreground text-center mt-4">
+                상위 200건만 표시됩니다. 전체 결과는 다운로드로 확인하세요.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

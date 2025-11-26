@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, ShoppingCart, DollarSign, AlertTriangle, ExternalLink, Download } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -278,12 +279,110 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
       </Card>
 
       {duplicateVendors.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-4 max-w-[80%] mx-auto">
+          {/* 거래처별 매출/매입 비교 그래프 (상위 10개) */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-center">거래처별 매출/매입 비교 (상위 10개)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart 
+                  data={duplicateVendors
+                    .sort((a, b) => Math.max(b.salesAmount, b.purchaseAmount) - Math.max(a.salesAmount, a.purchaseAmount))
+                    .slice(0, 10)
+                    .map(vendor => ({
+                      거래처: vendor.vendorName.length > 10 ? vendor.vendorName.substring(0, 10) + '...' : vendor.vendorName,
+                      매출: vendor.salesAmount,
+                      매입: vendor.purchaseAmount,
+                    }))}
+                  margin={{ top: 5, right: 20, left: 0, bottom: 60 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="거래처" 
+                    tick={{ fontSize: 10 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
+                  />
+                  <Tooltip 
+                    formatter={(value: number) => value.toLocaleString()}
+                    labelStyle={{ fontSize: 12 }}
+                    contentStyle={{ fontSize: 12 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="매출" fill="#3b82f6" name="매출" />
+                  <Bar dataKey="매입" fill="#ef4444" name="매입" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+          
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">이중거래처 목록 ({duplicateVendors.length}개)</h3>
-            <Badge variant="destructive" className="text-sm">
-              ⚠️ 검토 필요
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="destructive" className="text-sm">
+                ⚠️ 검토 필요
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  try {
+                    const wb = XLSX.utils.book_new();
+                    
+                    // 헤더 정의
+                    const headers = [
+                      '거래처명',
+                      '매출계정',
+                      '매출거래건수',
+                      '매출금액',
+                      '매입계정',
+                      '매입거래건수',
+                      '매입금액',
+                      '순매출금액'
+                    ];
+                    
+                    // 데이터 준비
+                    const exportData = duplicateVendors.map(vendor => ({
+                      '거래처명': vendor.vendorName,
+                      '매출계정': vendor.salesAccount,
+                      '매출거래건수': vendor.salesTransactions,
+                      '매출금액': vendor.salesAmount,
+                      '매입계정': vendor.purchaseAccount,
+                      '매입거래건수': vendor.purchaseTransactions,
+                      '매입금액': vendor.purchaseAmount,
+                      '순매출금액': vendor.netAmount
+                    }));
+                    
+                    const ws = XLSX.utils.json_to_sheet(exportData);
+                    XLSX.utils.book_append_sheet(wb, ws, '이중거래처분석');
+                    
+                    const fileName = `이중거래처분석_${new Date().toISOString().split('T')[0]}.xlsx`;
+                    XLSX.writeFile(wb, fileName);
+                    
+                    toast({
+                      title: '다운로드 완료',
+                      description: '엑셀 파일로 저장했습니다.',
+                    });
+                  } catch (err: any) {
+                    toast({
+                      title: '오류',
+                      description: `다운로드 중 오류: ${err.message}`,
+                      variant: 'destructive',
+                    });
+                  }
+                }}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                엑셀 다운로드
+              </Button>
+            </div>
           </div>
           
           {/* 검토 권장사항 - 상단에 한 번만 표시 */}
@@ -305,25 +404,25 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
             </CardContent>
           </Card>
           
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-3">
             {duplicateVendors.map((vendor, idx) => (
               <Card key={idx} className="hover:shadow-lg transition-shadow border-amber-200 dark:border-amber-800">
-                <CardHeader className="pb-3 bg-amber-50 dark:bg-amber-950">
+                <CardHeader className="pb-2 bg-amber-50 dark:bg-amber-950">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
                       {vendor.vendorName}
                     </CardTitle>
-                    <Badge variant={Math.abs(vendor.netAmount) > vendor.salesAmount * 0.5 ? "destructive" : "secondary"}>
+                    <Badge variant={Math.abs(vendor.netAmount) > vendor.salesAmount * 0.5 ? "destructive" : "secondary"} className="text-xs">
                       순매출: ₩{vendor.netAmount.toLocaleString()}
                     </Badge>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-4">
-                  <div className="grid grid-cols-2 gap-4">
+                <CardContent className="pt-3">
+                  <div className="grid grid-cols-2 gap-3">
                     {/* 매입 (왼쪽) */}
                     <div 
-                      className="space-y-2 p-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900 transition-colors"
+                      className="space-y-1.5 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900 transition-colors"
                       onClick={() => {
                         const sheet = workbook.Sheets[vendor.purchaseAccount];
                         const { data } = getDataFromSheet(sheet);
@@ -337,14 +436,14 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                         }
                       }}
                     >
-                      <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
-                        <ShoppingCart className="h-4 w-4" />
-                        <span className="font-semibold text-sm">매입 (공급자)</span>
-                        <ExternalLink className="h-3 w-3 ml-auto" />
+                      <div className="flex items-center gap-1.5 text-red-700 dark:text-red-300">
+                        <ShoppingCart className="h-3.5 w-3.5" />
+                        <span className="font-semibold text-xs">매입 (공급자)</span>
+                        <ExternalLink className="h-2.5 w-2.5 ml-auto" />
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-0.5">
                         <div className="text-xs text-red-600 dark:text-red-400 font-medium hover:underline">{vendor.purchaseAccount}</div>
-                        <div className="text-2xl font-bold text-red-900 dark:text-red-100">
+                        <div className="text-xl font-bold text-red-900 dark:text-red-100">
                           ₩{vendor.purchaseAmount.toLocaleString()}
                         </div>
                         <div className="text-xs text-red-600 dark:text-red-400">
@@ -355,7 +454,7 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                     
                     {/* 매출 (오른쪽) */}
                     <div 
-                      className="space-y-2 p-4 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
+                      className="space-y-1.5 p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
                       onClick={() => {
                         const sheet = workbook.Sheets[vendor.salesAccount];
                         const { data } = getDataFromSheet(sheet);
@@ -369,14 +468,14 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                         }
                       }}
                     >
-                      <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                        <DollarSign className="h-4 w-4" />
-                        <span className="font-semibold text-sm">매출 (고객)</span>
-                        <ExternalLink className="h-3 w-3 ml-auto" />
+                      <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
+                        <DollarSign className="h-3.5 w-3.5" />
+                        <span className="font-semibold text-xs">매출 (고객)</span>
+                        <ExternalLink className="h-2.5 w-2.5 ml-auto" />
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-0.5">
                         <div className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline">{vendor.salesAccount}</div>
-                        <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                        <div className="text-xl font-bold text-blue-900 dark:text-blue-100">
                           ₩{vendor.salesAmount.toLocaleString()}
                         </div>
                         <div className="text-xs text-blue-600 dark:text-blue-400">

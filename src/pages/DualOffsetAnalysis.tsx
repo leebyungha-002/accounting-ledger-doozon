@@ -3,8 +3,11 @@ import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, ArrowRight, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, TrendingUp, TrendingDown, AlertTriangle, Download, ExternalLink } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -58,6 +61,8 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
   const { toast } = useToast();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [offsetVendors, setOffsetVendors] = useState<OffsetVendor[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<{ accountName: string; vendorName: string; type: 'debit' | 'credit' } | null>(null);
+  const [accountDetails, setAccountDetails] = useState<LedgerRow[]>([]);
 
   // 외상매출금 차변, 외상매입금/미지급금/미지급비용 대변 찾기
   const relevantAccounts = useMemo(() => {
@@ -242,36 +247,151 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
       </Card>
 
       {offsetVendors.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-4 max-w-[80%] mx-auto">
+          {/* 거래처별 차변/대변 비교 그래프 (상위 10개) */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-center">거래처별 차변/대변 비교 (상위 10개)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart 
+                  data={offsetVendors
+                    .sort((a, b) => Math.max(b.debitAmount, b.creditAmount) - Math.max(a.debitAmount, a.creditAmount))
+                    .slice(0, 10)
+                    .map(vendor => ({
+                      거래처: vendor.vendorName.length > 10 ? vendor.vendorName.substring(0, 10) + '...' : vendor.vendorName,
+                      차변: vendor.debitAmount,
+                      대변: vendor.creditAmount,
+                    }))}
+                  margin={{ top: 5, right: 20, left: 0, bottom: 60 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="거래처" 
+                    tick={{ fontSize: 10 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
+                  />
+                  <Tooltip 
+                    formatter={(value: number) => value.toLocaleString()}
+                    labelStyle={{ fontSize: 12 }}
+                    contentStyle={{ fontSize: 12 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="차변" fill="#22c55e" name="차변 (받을금액)" />
+                  <Bar dataKey="대변" fill="#f97316" name="대변 (지급금액)" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+          
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">상계 거래처 목록 ({offsetVendors.length}개)</h3>
+            <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-sm">
               총 상계 가능 금액: ₩{offsetVendors.reduce((sum, v) => sum + Math.min(v.debitAmount, v.creditAmount), 0).toLocaleString()}
             </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  try {
+                    const wb = XLSX.utils.book_new();
+                    
+                    // 헤더 정의
+                    const headers = [
+                      '거래처명',
+                      '차변계정',
+                      '차변거래건수',
+                      '차변금액',
+                      '대변계정',
+                      '대변거래건수',
+                      '대변금액',
+                      '순액',
+                      '상계가능금액'
+                    ];
+                    
+                    // 데이터 준비
+                    const exportData = offsetVendors.map(vendor => ({
+                      '거래처명': vendor.vendorName,
+                      '차변계정': vendor.debitAccount,
+                      '차변거래건수': vendor.debitTransactions,
+                      '차변금액': vendor.debitAmount,
+                      '대변계정': vendor.creditAccount,
+                      '대변거래건수': vendor.creditTransactions,
+                      '대변금액': vendor.creditAmount,
+                      '순액': vendor.netAmount,
+                      '상계가능금액': Math.min(vendor.debitAmount, vendor.creditAmount)
+                    }));
+                    
+                    const ws = XLSX.utils.json_to_sheet(exportData);
+                    XLSX.utils.book_append_sheet(wb, ws, '외상매출매입분석');
+                    
+                    const fileName = `외상매출매입분석_${new Date().toISOString().split('T')[0]}.xlsx`;
+                    XLSX.writeFile(wb, fileName);
+                    
+                    toast({
+                      title: '다운로드 완료',
+                      description: '엑셀 파일로 저장했습니다.',
+                    });
+                  } catch (err: any) {
+                    toast({
+                      title: '오류',
+                      description: `다운로드 중 오류: ${err.message}`,
+                      variant: 'destructive',
+                    });
+                  }
+                }}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                엑셀 다운로드
+              </Button>
+            </div>
           </div>
           
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-3">
             {offsetVendors.map((vendor, idx) => (
               <Card key={idx} className="hover:shadow-lg transition-shadow">
-                <CardHeader className="pb-3">
+                <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{vendor.vendorName}</CardTitle>
-                    <Badge variant={Math.abs(vendor.netAmount) > 1000000 ? "destructive" : "secondary"}>
+                    <CardTitle className="text-sm">{vendor.vendorName}</CardTitle>
+                    <Badge variant={Math.abs(vendor.netAmount) > 1000000 ? "destructive" : "secondary"} className="text-xs">
                       순액: ₩{vendor.netAmount.toLocaleString()}
                     </Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     {/* 차변 (왼쪽) */}
-                    <div className="space-y-2 p-4 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800">
-                      <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
-                        <TrendingUp className="h-4 w-4" />
-                        <span className="font-semibold text-sm">차변 (받을금액)</span>
+                    <div 
+                      className="space-y-1.5 p-3 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900 transition-colors"
+                      onClick={() => {
+                        const sheet = workbook.Sheets[vendor.debitAccount];
+                        const { data } = getDataFromSheet(sheet);
+                        const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
+                        if (vendorHeader) {
+                          const filteredData = data.filter(row => 
+                            String(row[vendorHeader] || '').trim() === vendor.vendorName
+                          );
+                          setAccountDetails(filteredData);
+                          setSelectedAccount({ accountName: vendor.debitAccount, vendorName: vendor.vendorName, type: 'debit' });
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-1.5 text-green-700 dark:text-green-300">
+                        <TrendingUp className="h-3.5 w-3.5" />
+                        <span className="font-semibold text-xs">차변 (받을금액)</span>
+                        <ExternalLink className="h-2.5 w-2.5 ml-auto" />
                       </div>
-                      <div className="space-y-1">
-                        <div className="text-xs text-green-600 dark:text-green-400">{vendor.debitAccount}</div>
-                        <div className="text-2xl font-bold text-green-900 dark:text-green-100">
+                      <div className="space-y-0.5">
+                        <div className="text-xs text-green-600 dark:text-green-400 font-medium hover:underline">{vendor.debitAccount}</div>
+                        <div className="text-xl font-bold text-green-900 dark:text-green-100">
                           ₩{vendor.debitAmount.toLocaleString()}
                         </div>
                         <div className="text-xs text-green-600 dark:text-green-400">
@@ -281,14 +401,29 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
                     </div>
                     
                     {/* 대변 (오른쪽) */}
-                    <div className="space-y-2 p-4 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800">
-                      <div className="flex items-center gap-2 text-orange-700 dark:text-orange-300">
-                        <TrendingDown className="h-4 w-4" />
-                        <span className="font-semibold text-sm">대변 (지급금액)</span>
+                    <div 
+                      className="space-y-1.5 p-3 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900 transition-colors"
+                      onClick={() => {
+                        const sheet = workbook.Sheets[vendor.creditAccount];
+                        const { data } = getDataFromSheet(sheet);
+                        const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
+                        if (vendorHeader) {
+                          const filteredData = data.filter(row => 
+                            String(row[vendorHeader] || '').trim() === vendor.vendorName
+                          );
+                          setAccountDetails(filteredData);
+                          setSelectedAccount({ accountName: vendor.creditAccount, vendorName: vendor.vendorName, type: 'credit' });
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-1.5 text-orange-700 dark:text-orange-300">
+                        <TrendingDown className="h-3.5 w-3.5" />
+                        <span className="font-semibold text-xs">대변 (지급금액)</span>
+                        <ExternalLink className="h-2.5 w-2.5 ml-auto" />
                       </div>
-                      <div className="space-y-1">
-                        <div className="text-xs text-orange-600 dark:text-orange-400">{vendor.creditAccount}</div>
-                        <div className="text-2xl font-bold text-orange-900 dark:text-orange-100">
+                      <div className="space-y-0.5">
+                        <div className="text-xs text-orange-600 dark:text-orange-400 font-medium hover:underline">{vendor.creditAccount}</div>
+                        <div className="text-xl font-bold text-orange-900 dark:text-orange-100">
                           ₩{vendor.creditAmount.toLocaleString()}
                         </div>
                         <div className="text-xs text-orange-600 dark:text-orange-400">
@@ -299,12 +434,12 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
                   </div>
                   
                   {/* 상계 가능 금액 */}
-                  <div className="mt-4 p-3 rounded-lg bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800">
+                  <div className="mt-3 p-2.5 rounded-lg bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-purple-900 dark:text-purple-100">
+                      <span className="text-xs font-medium text-purple-900 dark:text-purple-100">
                         상계 가능 금액:
                       </span>
-                      <span className="text-lg font-bold text-purple-900 dark:text-purple-100">
+                      <span className="text-base font-bold text-purple-900 dark:text-purple-100">
                         ₩{Math.min(vendor.debitAmount, vendor.creditAmount).toLocaleString()}
                       </span>
                     </div>
@@ -315,6 +450,102 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
           </div>
         </div>
       )}
+
+      {/* 계정별원장 상세내역 Dialog */}
+      <Dialog open={selectedAccount !== null} onOpenChange={(open) => !open && setSelectedAccount(null)}>
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>
+                  {selectedAccount?.type === 'debit' ? '차변' : '대변'} 계정별원장 상세내역 - {selectedAccount?.accountName}
+                </DialogTitle>
+                <div className="text-sm text-muted-foreground mt-1">
+                  거래처: {selectedAccount?.vendorName}
+                </div>
+              </div>
+              {accountDetails.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    try {
+                      const wb = XLSX.utils.book_new();
+                      
+                      // 데이터 준비
+                      const exportData = accountDetails.map(row => {
+                        const obj: { [key: string]: any } = {};
+                        Object.keys(row).forEach(key => {
+                          const val = row[key];
+                          if (val instanceof Date) {
+                            obj[key] = val.toLocaleDateString('ko-KR');
+                          } else {
+                            obj[key] = val ?? '';
+                          }
+                        });
+                        return obj;
+                      });
+                      
+                      const ws = XLSX.utils.json_to_sheet(exportData);
+                      XLSX.utils.book_append_sheet(wb, ws, '상세내역');
+                      
+                      // 파일명 생성
+                      const accountType = selectedAccount?.type === 'debit' ? '차변' : '대변';
+                      const fileName = `${accountType}_${selectedAccount?.accountName}_${selectedAccount?.vendorName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                      
+                      XLSX.writeFile(wb, fileName);
+                      
+                      toast({
+                        title: '다운로드 완료',
+                        description: '엑셀 파일로 저장했습니다.',
+                      });
+                    } catch (err: any) {
+                      toast({
+                        title: '오류',
+                        description: `다운로드 중 오류: ${err.message}`,
+                        variant: 'destructive',
+                      });
+                    }
+                  }}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  엑셀 다운로드
+                </Button>
+              )}
+            </div>
+          </DialogHeader>
+          <div className="mt-4">
+            {accountDetails.length > 0 ? (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {Object.keys(accountDetails[0] || {}).map(key => (
+                        <TableHead key={key}>{key}</TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {accountDetails.map((row, idx) => (
+                      <TableRow key={idx}>
+                        {Object.values(row).map((val, j) => (
+                          <TableCell key={j} className="text-sm">
+                            {val instanceof Date ? val.toLocaleDateString() : String(val ?? '')}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                상세내역이 없습니다.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Scale, TrendingUp, TrendingDown, Download, Check, ChevronsUpDown } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -93,28 +94,41 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
       
       const normalizedSelectedAccount = normalizeAccountName(selectedAccount);
       
-      // 유사한 이름 찾기
-      const similarSheet = previousSheetNames.find(name => {
+      // 유사한 이름 찾기 (정확히 일치하는 것 우선, 부분 일치도 시도)
+      let similarSheet = previousSheetNames.find(name => {
         const normalizedName = normalizeAccountName(name);
         // 정규화된 이름이 정확히 일치하는지 확인
         return normalizedName === normalizedSelectedAccount;
       });
       
+      // 정확히 일치하는 것이 없으면 부분 일치 시도
+      if (!similarSheet) {
+        similarSheet = previousSheetNames.find(name => {
+          const normalizedName = normalizeAccountName(name);
+          // 정규화된 이름이 포함되어 있는지 확인 (양방향)
+          return normalizedName.includes(normalizedSelectedAccount) || 
+                 normalizedSelectedAccount.includes(normalizedName);
+        });
+      }
+      
       if (similarSheet) {
         previousSheet = previousWorkbook.Sheets[similarSheet];
-        console.log(`🔍 전기 시트 찾기: "${selectedAccount}" → "${similarSheet}"`);
+        console.log(`🔍 전기 시트 찾기 성공: "${selectedAccount}" → "${similarSheet}"`);
       } else {
         console.warn(`⚠️ 전기 데이터에서 계정 "${selectedAccount}"를 찾을 수 없습니다.`, {
           정규화된계정명: normalizedSelectedAccount,
-          전기시트목록: previousSheetNames.slice(0, 20).map(n => ({ 원본: n, 정규화: normalizeAccountName(n) })),
-          선택된계정: selectedAccount
+          전기시트목록: previousSheetNames.slice(0, 30).map(n => ({ 원본: n, 정규화: normalizeAccountName(n) })),
+          선택된계정: selectedAccount,
+          전체시트수: previousSheetNames.length
         });
       }
+    } else {
+      console.log(`✅ 전기 시트 찾기 성공 (정확한 이름): "${selectedAccount}"`);
     }
 
     if (!currentSheet) return [];
 
-    const { data: currentData, headers: currentHeaders } = getDataFromSheet(currentSheet);
+      const { data: currentData, headers: currentHeaders } = getDataFromSheet(currentSheet);
     const { data: previousData, headers: previousHeaders } = getDataFromSheet(previousSheet || undefined);
 
     console.log(`📊 [${selectedAccount}] 데이터 로드:`, {
@@ -127,15 +141,23 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
 
     if (currentData.length === 0) return [];
 
-    // 헤더 찾기
-    const currentDebitHeader = robustFindHeader(currentHeaders, ['차변', 'debit', '차변금액']) ||
-                               currentHeaders.find(h => h.includes('차변'));
-    const currentCreditHeader = robustFindHeader(currentHeaders, ['대변', 'credit', '대변금액']) ||
-                                currentHeaders.find(h => h.includes('대변'));
-    const previousDebitHeader = robustFindHeader(previousHeaders, ['차변', 'debit', '차변금액']) ||
-                                previousHeaders.find(h => h.includes('차변'));
-    const previousCreditHeader = robustFindHeader(previousHeaders, ['대변', 'credit', '대변금액']) ||
-                                 previousHeaders.find(h => h.includes('대변'));
+    // 헤더 찾기 (더 강력한 검색)
+    const currentDebitHeader = robustFindHeader(currentHeaders, ['차변', 'debit', '차변금액', '차  변']) ||
+                               currentHeaders.find(h => h.toLowerCase().replace(/\s/g, '').includes('차변'));
+    const currentCreditHeader = robustFindHeader(currentHeaders, ['대변', 'credit', '대변금액', '대  변']) ||
+                                currentHeaders.find(h => h.toLowerCase().replace(/\s/g, '').includes('대변'));
+    const previousDebitHeader = robustFindHeader(previousHeaders, ['차변', 'debit', '차변금액', '차  변']) ||
+                                previousHeaders.find(h => h.toLowerCase().replace(/\s/g, '').includes('차변'));
+    const previousCreditHeader = robustFindHeader(previousHeaders, ['대변', 'credit', '대변금액', '대  변']) ||
+                                 previousHeaders.find(h => h.toLowerCase().replace(/\s/g, '').includes('대변'));
+    
+    console.log(`🔍 [${selectedAccount}] 헤더 찾기 결과:`, {
+      당기차변: currentDebitHeader || '❌ 없음',
+      당기대변: currentCreditHeader || '❌ 없음',
+      전기차변: previousDebitHeader || '❌ 없음',
+      전기대변: previousCreditHeader || '❌ 없음',
+      전기헤더목록: previousHeaders
+    });
 
     const vendorHeader = robustFindHeader(currentHeaders, ['거래처', '업체', '회사', 'vendor', 'customer']) ||
                          currentHeaders.find(h => 
@@ -159,7 +181,7 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
     }>();
 
     // 당기 데이터 처리
-    currentData.forEach(row => {
+      currentData.forEach(row => {
       const vendor = String(row[vendorHeader] || '').trim();
       if (!vendor || vendor === '') return;
 
@@ -173,8 +195,8 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
       }
 
       const vendorData = vendorMap.get(vendor)!;
-      const debit = currentDebitHeader ? cleanAmount(row[currentDebitHeader]) : 0;
-      const credit = currentCreditHeader ? cleanAmount(row[currentCreditHeader]) : 0;
+        const debit = currentDebitHeader ? cleanAmount(row[currentDebitHeader]) : 0;
+        const credit = currentCreditHeader ? cleanAmount(row[currentCreditHeader]) : 0;
       vendorData.currentDebit += debit;
       vendorData.currentCredit += credit;
     });
@@ -189,11 +211,14 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
       
       if (!previousDebitHeader && !previousCreditHeader) {
         console.warn(`⚠️ [${selectedAccount}] 전기 데이터에서 차변/대변 헤더를 찾을 수 없습니다.`, {
-          전기헤더: previousHeaders
+          전기헤더: previousHeaders,
+          전기헤더상세: previousHeaders.map((h, i) => `${i}: "${h}"`)
         });
       }
 
+      // 거래처 헤더가 있고, 차변 또는 대변 헤더 중 하나라도 있으면 처리
       if (previousVendorHeader && (previousDebitHeader || previousCreditHeader)) {
+        let processedCount = 0;
         previousData.forEach(row => {
           const vendor = String(row[previousVendorHeader] || '').trim();
           if (!vendor || vendor === '') return;
@@ -212,14 +237,26 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
           const credit = previousCreditHeader ? cleanAmount(row[previousCreditHeader]) : 0;
           vendorData.previousDebit += debit;
           vendorData.previousCredit += credit;
+          
+          if (debit > 0 || credit > 0) {
+            processedCount++;
+          }
         });
+        console.log(`✅ [${selectedAccount}] 전기 데이터 처리 완료: ${processedCount}건의 거래 처리`);
       } else {
-        console.warn(`⚠️ [${selectedAccount}] 전기 데이터 처리 불가: 필요한 헤더가 없습니다.`);
+        console.warn(`⚠️ [${selectedAccount}] 전기 데이터 처리 불가: 필요한 헤더가 없습니다.`, {
+          거래처헤더: previousVendorHeader || '❌ 없음',
+          차변헤더: previousDebitHeader || '❌ 없음',
+          대변헤더: previousCreditHeader || '❌ 없음'
+        });
       }
     } else if (previousSheet) {
       console.warn(`⚠️ [${selectedAccount}] 전기 데이터가 비어있습니다.`);
     } else {
-      console.warn(`⚠️ [${selectedAccount}] 전기 시트를 찾을 수 없습니다.`);
+      console.warn(`⚠️ [${selectedAccount}] 전기 시트를 찾을 수 없습니다.`, {
+        당기계정명: selectedAccount,
+        전기시트목록: Object.keys(previousWorkbook.Sheets).slice(0, 20)
+      });
     }
 
     // 결과 배열 생성
@@ -345,41 +382,42 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 max-w-[80%] mx-auto">
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Scale className="h-5 w-5 text-primary" />
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Scale className="h-4 w-4 text-primary" />
                 전기 데이터 비교 분석
               </CardTitle>
-              <CardDescription className="mt-2">
+              <CardDescription className="mt-1 text-xs">
                 당기와 전기 데이터를 비교하여 증감 현황을 분석합니다.
               </CardDescription>
             </div>
-            <Button variant="ghost" onClick={onBack}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
+            <Button variant="ghost" size="sm" onClick={onBack}>
+              <ArrowLeft className="mr-2 h-3.5 w-3.5" />
               뒤로가기
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3">
           {/* 검색 및 필터 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* 계정명 검색 - 자동완성 */}
-            <div className="space-y-2">
-              <Label>계정명 선택 (필수)</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">계정명 선택 (필수)</Label>
               <Popover open={accountComboboxOpen} onOpenChange={setAccountComboboxOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     role="combobox"
                     aria-expanded={accountComboboxOpen}
-                    className="w-full justify-between"
+                    className="w-full justify-between h-9"
+                    size="sm"
                   >
-                    {selectedAccount || "계정명을 선택하거나 입력하세요"}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    <span className="text-xs">{selectedAccount || "계정명을 선택하거나 입력하세요"}</span>
+                    <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[400px] p-0" align="start">
@@ -388,6 +426,7 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
                       placeholder="계정명 검색..." 
                       value={selectedAccount}
                       onValueChange={setSelectedAccount}
+                      className="h-9"
                     />
                     <CommandList>
                       <CommandEmpty>계정을 찾을 수 없습니다.</CommandEmpty>
@@ -406,10 +445,11 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
                                 setSelectedAccount(account);
                                 setAccountComboboxOpen(false);
                               }}
+                              className="text-xs"
                             >
                               <Check
                                 className={cn(
-                                  "mr-2 h-4 w-4",
+                                  "mr-2 h-3.5 w-3.5",
                                   selectedAccount === account ? "opacity-100" : "opacity-0"
                                 )}
                               />
@@ -434,28 +474,28 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
             </div>
 
             {/* 금액 유형 선택 */}
-            <div className="space-y-2">
-              <Label>금액 유형</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">금액 유형</Label>
               <RadioGroup value={amountFilter} onValueChange={(value) => setAmountFilter(value as 'all' | 'debit' | 'credit')}>
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="all" id="all" />
-                  <Label htmlFor="all" className="cursor-pointer">차변+대변 모두</Label>
+                  <RadioGroupItem value="all" id="all" className="h-4 w-4" />
+                  <Label htmlFor="all" className="cursor-pointer text-xs">차변+대변 모두</Label>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="debit" id="debit" />
-                  <Label htmlFor="debit" className="cursor-pointer">차변만</Label>
+                  <RadioGroupItem value="debit" id="debit" className="h-4 w-4" />
+                  <Label htmlFor="debit" className="cursor-pointer text-xs">차변만</Label>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="credit" id="credit" />
-                  <Label htmlFor="credit" className="cursor-pointer">대변만</Label>
+                  <RadioGroupItem value="credit" id="credit" className="h-4 w-4" />
+                  <Label htmlFor="credit" className="cursor-pointer text-xs">대변만</Label>
                 </div>
               </RadioGroup>
             </div>
           </div>
 
           {selectedAccount && (
-          <Button onClick={downloadExcel}>
-            <Download className="mr-2 h-4 w-4" />
+          <Button onClick={downloadExcel} size="sm">
+            <Download className="mr-2 h-3.5 w-3.5" />
             비교표 다운로드
           </Button>
           )}
@@ -465,54 +505,97 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
       {/* 비교 결과 테이블 */}
       {selectedAccount && (
       <Card>
-        <CardHeader>
-            <CardTitle>
+        <CardHeader className="pb-3">
+            <CardTitle className="text-sm">
               {selectedAccount} - 거래처별 증감 현황 ({comparisonData.length}개)
             </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-0 space-y-4">
             {comparisonData.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>선택한 계정에 거래처 데이터가 없습니다.</p>
+              <div className="text-center py-6 text-muted-foreground">
+                <p className="text-xs">선택한 계정에 거래처 데이터가 없습니다.</p>
               </div>
             ) : (
-          <div className="rounded-md border max-h-[600px] overflow-y-auto">
+          <>
+            {/* 거래처별 당기/전기 비교 그래프 (상위 10개) */}
+            {comparisonData.length > 0 && (
+              <div className="rounded-md border p-4 bg-background">
+                <h4 className="text-sm font-semibold mb-4 text-center">거래처별 당기/전기 비교 (상위 10개)</h4>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart 
+                    data={comparisonData
+                      .sort((a, b) => Math.abs(b.currentAmount) - Math.abs(a.currentAmount))
+                      .slice(0, 10)
+                      .map(item => ({
+                        거래처: item.vendor.length > 10 ? item.vendor.substring(0, 10) + '...' : item.vendor,
+                        당기: item.currentAmount,
+                        전기: item.previousAmount,
+                      }))}
+                    margin={{ top: 5, right: 20, left: 0, bottom: 60 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="거래처" 
+                      tick={{ fontSize: 10 }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                    />
+                    <YAxis 
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => value.toLocaleString()}
+                      labelStyle={{ fontSize: 12 }}
+                      contentStyle={{ fontSize: 12 }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="당기" fill="#3b82f6" name="당기" />
+                    <Bar dataKey="전기" fill="#94a3b8" name="전기" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            
+            {/* 비교 결과 테이블 */}
+          <div className="rounded-md border max-h-[480px] overflow-y-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                      <TableHead>거래처</TableHead>
-                  <TableHead className="text-right">당기</TableHead>
-                  <TableHead className="text-right">전기</TableHead>
-                  <TableHead className="text-right">증감액</TableHead>
-                  <TableHead className="text-right">증감률</TableHead>
-                  <TableHead>변동</TableHead>
+                      <TableHead className="text-xs">거래처</TableHead>
+                  <TableHead className="text-right text-xs">당기</TableHead>
+                  <TableHead className="text-right text-xs">전기</TableHead>
+                  <TableHead className="text-right text-xs">증감액</TableHead>
+                  <TableHead className="text-right text-xs">증감률</TableHead>
+                  <TableHead className="text-xs">변동</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {comparisonData.map((item, idx) => (
                   <TableRow key={idx}>
-                        <TableCell className="font-medium">{item.vendor}</TableCell>
-                    <TableCell className="text-right">{item.currentAmount.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">{item.previousAmount.toLocaleString()}</TableCell>
-                    <TableCell className={`text-right font-medium ${item.change >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                        <TableCell className="font-medium text-xs">{item.vendor}</TableCell>
+                    <TableCell className="text-right text-xs">{item.currentAmount.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-xs">{item.previousAmount.toLocaleString()}</TableCell>
+                    <TableCell className={`text-right font-medium text-xs ${item.change >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
                       {item.change >= 0 ? '+' : ''}{item.change.toLocaleString()}
                     </TableCell>
-                    <TableCell className={`text-right font-medium ${item.changePercent >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                    <TableCell className={`text-right font-medium text-xs ${item.changePercent >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
                       {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(1)}%
                     </TableCell>
                     <TableCell>
                       {Math.abs(item.changePercent) >= 20 ? (
-                        <Badge variant="destructive" className="gap-1">
-                          {item.changePercent > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                        <Badge variant="destructive" className="gap-1 text-xs">
+                          {item.changePercent > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
                           주요 변동
                         </Badge>
                       ) : Math.abs(item.changePercent) >= 10 ? (
-                        <Badge variant="secondary" className="gap-1">
-                          {item.changePercent > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                        <Badge variant="secondary" className="gap-1 text-xs">
+                          {item.changePercent > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
                           변동
                         </Badge>
                       ) : (
-                        <Badge variant="outline">안정</Badge>
+                        <Badge variant="outline" className="text-xs">안정</Badge>
                       )}
                     </TableCell>
                   </TableRow>
@@ -520,6 +603,7 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
               </TableBody>
             </Table>
               </div>
+          </>
             )}
           </CardContent>
         </Card>
@@ -527,9 +611,9 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
 
       {!selectedAccount && (
         <Card>
-          <CardContent className="py-12">
+          <CardContent className="py-8">
             <div className="text-center text-muted-foreground">
-              <p>계정명을 선택하면 해당 계정의 거래처별 당기/전기 비교 분석이 표시됩니다.</p>
+              <p className="text-xs">계정명을 선택하면 해당 계정의 거래처별 당기/전기 비교 분석이 표시됩니다.</p>
           </div>
         </CardContent>
       </Card>
