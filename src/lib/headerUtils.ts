@@ -5,7 +5,7 @@
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
-const cleanAmount = (val: any): number => {
+export const cleanAmount = (val: any): number => {
   if (val === null || val === undefined || val === '') return 0;
   if (typeof val === 'number') {
     return isNaN(val) ? 0 : val;

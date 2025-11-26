@@ -21,6 +21,7 @@ import { PreviousPeriodComparison } from './PreviousPeriodComparison';
 import { TransactionSearch } from './TransactionSearch';
 import { FinancialStatementAnalysis } from './FinancialStatementAnalysis';
 import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
+import { findDebitCreditHeaders } from '@/lib/headerUtils';
 import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { addUsageRecord, getUsageSummary, clearUsageHistory, exportUsageToCSV, type UsageSummary } from '@/lib/usageTracker';
 import {
@@ -841,8 +842,20 @@ const AdvancedLedgerAnalysis = () => {
       const sampleSize = calculateSampleSize(totalCount);
       const samplingRatio = (sampleSize / totalCount) * 100;
       
-      // Estimate prompt size
-      const dataSummary = generateDataSummary(currentAccountData, selectedAccount, amountColumns);
+      // Estimate prompt size (차변/대변 헤더 찾기)
+      const headers = Object.keys(currentAccountData[0] || {});
+      const dateHeader = headers.find(h => 
+        h.includes('일자') || h.includes('날짜')
+      );
+      const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, currentAccountData, dateHeader);
+      const dataSummary = generateDataSummary(
+        currentAccountData, 
+        selectedAccount, 
+        amountColumns,
+        debitHeader,
+        creditHeader,
+        dateHeader
+      );
       const sampleDataSize = sampleSize * 200; // Rough estimate: 200 tokens per transaction
       const promptSize = dataSummary.length + sampleDataSize + analysisQuestion.length + 500;
       
@@ -1733,6 +1746,21 @@ const AdvancedLedgerAnalysis = () => {
                 setAnalysisResult('');
                 
                 try {
+                  // 1. 차변/대변 헤더 찾기
+                  const headers = Object.keys(currentAccountData[0] || {});
+                  const dateHeader = headers.find(h => 
+                    h.includes('일자') || h.includes('날짜')
+                  );
+                  const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, currentAccountData, dateHeader);
+                  
+                  // 디버깅: 찾은 헤더 확인
+                  console.log('📊 AI 분석 - 찾은 헤더:', {
+                    debitHeader: debitHeader || '없음',
+                    creditHeader: creditHeader || '없음',
+                    dateHeader: dateHeader || '없음',
+                    allHeaders: headers
+                  });
+                  
                   // 1. 샘플 크기 계산
                   const totalCount = currentAccountData.length;
                   const sampleSize = calculateSampleSize(totalCount);
@@ -1746,11 +1774,21 @@ const AdvancedLedgerAnalysis = () => {
                     currentAccountData,
                     sampleSize,
                     amountColumns,
-                    dateColumns
+                    dateColumns,
+                    debitHeader,
+                    creditHeader,
+                    selectedAccount
                   );
                   
-                  // 3. 통계 요약 생성
-                  const dataSummary = generateDataSummary(currentAccountData, selectedAccount, amountColumns);
+                  // 3. 통계 요약 생성 (차변/대변 헤더 전달)
+                  const dataSummary = generateDataSummary(
+                    currentAccountData, 
+                    selectedAccount, 
+                    amountColumns,
+                    debitHeader,
+                    creditHeader,
+                    dateHeader
+                  );
                   
                   // 4. 프롬프트 생성
                   const prompt = `
