@@ -326,9 +326,9 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">이중거래처 목록 ({duplicateVendors.length}개)</h3>
             <div className="flex items-center gap-2">
-              <Badge variant="destructive" className="text-sm">
-                ⚠️ 검토 필요
-              </Badge>
+            <Badge variant="destructive" className="text-sm">
+              ⚠️ 검토 필요
+            </Badge>
               <Button
                 variant="outline"
                 size="sm"
@@ -480,7 +480,7 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                         </div>
                         <div className="text-xs text-blue-600 dark:text-blue-400">
                           {vendor.salesTransactions.toLocaleString()}건
-                        </div>
+                  </div>
                       </div>
                     </div>
                   </div>
