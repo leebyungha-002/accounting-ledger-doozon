@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { analyzeWithFlash, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { getUsageSummary, type UsageSummary } from '@/lib/usageTracker';
+import { findDebitCreditHeaders } from '@/lib/headerUtils';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -201,25 +202,22 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
 
   // 월별 데이터 집계
   const monthlyData = useMemo(() => {
-    const data: { [account: string]: { [month: number]: number } } = {};
+    const monthlyDataMap: { [account: string]: { [month: number]: number } } = {};
     
     selectedAccounts.forEach(account => {
-      data[account] = {};
+      monthlyDataMap[account] = {};
       for (let i = 1; i <= 12; i++) {
-        data[account][i] = 0;
+        monthlyDataMap[account][i] = 0;
       }
     });
 
     selectedAccounts.forEach(accountName => {
       const sheet = workbook.Sheets[accountName];
-      const { data: rows, headers } = getDataFromSheet(sheet);
+      const { data: ledgerRows, headers } = getDataFromSheet(sheet);
       
       const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date']) ||
                          headers.find(h => h.includes('일자') || h.includes('날짜'));
-      const debitHeader = robustFindHeader(headers, ['차변', 'debit', '차변금액']) ||
-                          headers.find(h => h.includes('차변'));
-      const creditHeader = robustFindHeader(headers, ['대변', 'credit', '대변금액']) ||
-                           headers.find(h => h.includes('대변'));
+      const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, ledgerRows, dateHeader);
       
       if (!dateHeader) {
         console.warn(`⚠️ [${accountName}] 날짜 헤더를 찾을 수 없습니다.`, headers);
@@ -231,7 +229,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
       let validDateCount = 0;
       let amountCount = 0;
       
-      rows.forEach(row => {
+      ledgerRows.forEach(row => {
         processedCount++;
         let date = row[dateHeader];
         
@@ -254,7 +252,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
         
         if (amount > 0) {
           amountCount++;
-          data[accountName][month] += amount;
+          monthlyDataMap[accountName][month] += amount;
         }
       });
       
@@ -266,12 +264,12 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
           금액있는행: amountCount,
           dateHeader,
           creditHeader,
-          총대변금액: Object.values(data[accountName] || {}).reduce((a, b) => a + b, 0)
+          총대변금액: Object.values(monthlyDataMap[accountName] || {}).reduce((a, b) => a + b, 0)
         });
       }
     });
 
-    return data;
+    return monthlyDataMap;
   }, [workbook, selectedAccounts, categorizedAccounts]);
 
   // 월별 합계
@@ -283,7 +281,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
     
     Object.values(monthlyData).forEach(accountData => {
       Object.entries(accountData).forEach(([month, amount]) => {
-        totals[parseInt(month)] += amount;
+        totals[parseInt(month)] += (amount as number);
       });
     });
     
@@ -301,7 +299,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
       .filter(account => categorizedAccounts.sales.includes(account))
       .forEach(account => {
         Object.entries(monthlyData[account] || {}).forEach(([month, amount]) => {
-          totals[parseInt(month)] += amount;
+          totals[parseInt(month)] += (amount as number);
         });
       });
     
@@ -319,7 +317,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
       .filter(account => categorizedAccounts.expenses.includes(account))
       .forEach(account => {
         Object.entries(monthlyData[account] || {}).forEach(([month, amount]) => {
-          totals[parseInt(month)] += amount;
+          totals[parseInt(month)] += (amount as number);
         });
       });
     
@@ -337,7 +335,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
       .filter(account => categorizedAccounts.manufacturing.includes(account))
       .forEach(account => {
         Object.entries(monthlyData[account] || {}).forEach(([month, amount]) => {
-          totals[parseInt(month)] += amount;
+          totals[parseInt(month)] += (amount as number);
         });
       });
     

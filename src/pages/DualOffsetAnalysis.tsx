@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, ArrowRight, TrendingUp, TrendingDown, AlertTriangle, Download, ExternalLink } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { findDebitCreditHeaders } from '@/lib/headerUtils';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -97,7 +98,8 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
         const { data, headers } = getDataFromSheet(sheet);
         
         const vendorHeader = robustFindHeader(headers, ['거래처', '업체', '회사', 'vendor', 'customer']);
-        const debitHeader = robustFindHeader(headers, ['차변', 'debit', '차변금액']);
+        const dateHeader = headers.find(h => h.includes('일자') || h.includes('날짜'));
+        const { debitHeader } = findDebitCreditHeaders(headers, data, dateHeader);
         
         if (!vendorHeader || !debitHeader) return;
         
@@ -132,7 +134,8 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
         const { data, headers } = getDataFromSheet(sheet);
         
         const vendorHeader = robustFindHeader(headers, ['거래처', '업체', '회사', 'vendor', 'customer']);
-        const creditHeader = robustFindHeader(headers, ['대변', 'credit', '대변금액']);
+        const dateHeader = headers.find(h => h.includes('일자') || h.includes('날짜'));
+        const { creditHeader } = findDebitCreditHeaders(headers, data, dateHeader);
         
         if (!vendorHeader || !creditHeader) return;
         

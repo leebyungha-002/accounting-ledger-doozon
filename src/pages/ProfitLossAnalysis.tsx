@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Download } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { findDebitCreditHeaders } from '@/lib/headerUtils';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -48,8 +49,8 @@ export const ProfitLossAnalysis: React.FC<ProfitLossAnalysisProps> = ({
       const sheet = workbook.Sheets[accountName];
       const { data, headers } = getDataFromSheet(sheet);
       
-      const debitHeader = headers.find(h => h.includes('차변'));
-      const creditHeader = headers.find(h => h.includes('대변'));
+      const dateHeader = headers.find(h => h.includes('일자') || h.includes('날짜'));
+      const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, data, dateHeader);
       
       let total = 0;
       data.forEach(row => {

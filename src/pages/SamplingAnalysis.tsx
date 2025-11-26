@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, FlaskConical, Download, Calculator, AlertTriangle } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
+import { findDebitCreditHeaders } from '@/lib/headerUtils';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -124,10 +125,10 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
     if (samplingMethod !== 'mus' || accountData.length === 0) return 0;
     
     const headers = Object.keys(accountData[0] || {});
-    const debitHeader = robustFindHeader(headers, ['차변', 'debit', '차변금액']) ||
-                       headers.find(h => h.includes('차변'));
-    const creditHeader = robustFindHeader(headers, ['대변', 'credit', '대변금액']) ||
-                        headers.find(h => h.includes('대변'));
+    const dateHeader = headers.find(h => 
+      h.includes('일자') || h.includes('날짜')
+    );
+    const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, accountData, dateHeader);
 
     let total = 0;
     // 월계, 누계 행 제외하고 계산
@@ -180,14 +181,28 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
     let detectedAnomalyIndices = new Set<number>();
     
     if (includeAnomalies) {
-      // 이상거래 탐지 수행
+      // 이상거래 탐지 수행 - 사용자가 선택한 차변/대변에 따라
       const headers = Object.keys(filteredData[0] || {});
-      const amountHeader = robustFindHeader(headers, ['차변', '대변', 'debit', 'credit', '금액', 'amount']) ||
-                           headers.find(h => h.includes('차변') || h.includes('대변') || h.includes('금액'));
+      const dateHeader = headers.find(h => 
+        h.includes('일자') || h.includes('날짜')
+      );
+      const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, filteredData, dateHeader);
       
-      if (amountHeader && filteredData.length > 0) {
+      if ((debitHeader || creditHeader) && filteredData.length > 0) {
+        // 사용자가 선택한 금액 타입에 따라 금액 추출
         const amounts = filteredData
-          .map(row => cleanAmount(row[amountHeader]))
+          .map(row => {
+            let amount = 0;
+            if (musAmountType === 'debit' && debitHeader) {
+              amount = Math.abs(cleanAmount(row[debitHeader]));
+            } else if (musAmountType === 'credit' && creditHeader) {
+              amount = Math.abs(cleanAmount(row[creditHeader]));
+            } else if (musAmountType === 'both') {
+              if (debitHeader) amount += Math.abs(cleanAmount(row[debitHeader]));
+              if (creditHeader) amount += Math.abs(cleanAmount(row[creditHeader]));
+            }
+            return amount;
+          })
           .filter(amt => amt > 0);
 
         if (amounts.length > 0) {
@@ -200,9 +215,17 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
           const q3 = sorted[Math.floor(sorted.length * 0.75)];
           const iqr = q3 - q1;
 
-          // 이상거래 인덱스 찾기 (심각도 "높음"만)
+          // 이상거래 인덱스 찾기 (심각도 "높음"만) - 사용자가 선택한 차변/대변에 따라
           filteredData.forEach((row, index) => {
-            const amount = cleanAmount(row[amountHeader]);
+            let amount = 0;
+            if (musAmountType === 'debit' && debitHeader) {
+              amount = Math.abs(cleanAmount(row[debitHeader]));
+            } else if (musAmountType === 'credit' && creditHeader) {
+              amount = Math.abs(cleanAmount(row[creditHeader]));
+            } else if (musAmountType === 'both') {
+              if (debitHeader) amount += Math.abs(cleanAmount(row[debitHeader]));
+              if (creditHeader) amount += Math.abs(cleanAmount(row[creditHeader]));
+            }
             if (amount <= 0) return;
 
             let severity: 'high' | 'medium' | 'low' = 'low';
@@ -272,38 +295,66 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
     const size = Math.min(remainingSize, remainingData.length);
     let samples: LedgerRow[] = [];
 
+    // 사용자가 선택한 차변/대변에 해당하는 금액이 있는 행만 필터링
+    let dataWithAmount: LedgerRow[] = [];
+    let debitHeader: string | undefined;
+    let creditHeader: string | undefined;
+    
+    if (remainingData.length > 0) {
+      const headers = Object.keys(remainingData[0] || {});
+      const dateHeader = headers.find(h => 
+        h.includes('일자') || h.includes('날짜')
+      );
+      const headersResult = findDebitCreditHeaders(headers, remainingData, dateHeader);
+      debitHeader = headersResult.debitHeader;
+      creditHeader = headersResult.creditHeader;
+      
+      dataWithAmount = remainingData.filter(row => {
+      if (isSummaryRow(row)) return false;
+      let amount = 0;
+      if (musAmountType === 'debit' && debitHeader) {
+        amount = Math.abs(cleanAmount(row[debitHeader]));
+      } else if (musAmountType === 'credit' && creditHeader) {
+        amount = Math.abs(cleanAmount(row[creditHeader]));
+      } else if (musAmountType === 'both') {
+        if (debitHeader) amount += Math.abs(cleanAmount(row[debitHeader]));
+        if (creditHeader) amount += Math.abs(cleanAmount(row[creditHeader]));
+      }
+      return amount > 0;
+      });
+    }
+
     switch (samplingMethod) {
       case 'random':
-        // 랜덤 샘플링 (월계, 누계 제외)
+        // 랜덤 샘플링 (사용자가 선택한 차변/대변에 해당하는 금액이 있는 행만)
         const indices = new Set<number>();
-        while (indices.size < size) {
-          indices.add(Math.floor(Math.random() * filteredData.length));
+        while (indices.size < size && indices.size < dataWithAmount.length) {
+          indices.add(Math.floor(Math.random() * dataWithAmount.length));
         }
-        samples = Array.from(indices).map(i => filteredData[i]);
+        samples = Array.from(indices).map(i => dataWithAmount[i]);
         break;
 
       case 'systematic':
-        // 체계적 샘플링 (등간격, 월계, 누계 제외)
-        const interval = Math.floor(filteredData.length / size);
+        // 체계적 샘플링 (등간격, 사용자가 선택한 차변/대변에 해당하는 금액이 있는 행만)
+        if (dataWithAmount.length === 0) {
+          samples = [];
+          break;
+        }
+        const interval = Math.floor(dataWithAmount.length / size);
         const start = Math.floor(Math.random() * interval);
-        for (let i = 0; i < size; i++) {
-          const index = (start + i * interval) % filteredData.length;
-          samples.push(filteredData[index]);
+        for (let i = 0; i < size && i < dataWithAmount.length; i++) {
+          const index = (start + i * interval) % dataWithAmount.length;
+          samples.push(dataWithAmount[index]);
         }
         break;
 
       case 'mus':
         // MUS (Monetary Unit Sampling) - 금액 기준 (이상거래 제외한 데이터에서)
-        if (remainingData.length === 0) {
+        // 사용자가 선택한 차변/대변에 해당하는 금액이 있는 행만 사용
+        if (dataWithAmount.length === 0) {
           samples = [];
           break;
         }
-        
-        const headers = Object.keys(remainingData[0] || {});
-        const debitHeader = robustFindHeader(headers, ['차변', 'debit', '차변금액']) ||
-                           headers.find(h => h.includes('차변'));
-        const creditHeader = robustFindHeader(headers, ['대변', 'credit', '대변금액']) ||
-                            headers.find(h => h.includes('대변'));
         
         if (!debitHeader && !creditHeader) {
           toast({
@@ -314,13 +365,10 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
           return;
         }
 
-        // 선택된 금액 타입에 따라 금액 추출 (이상거래 제외한 데이터에서)
+        // 선택된 금액 타입에 따라 금액 추출 (이미 필터링된 dataWithAmount 사용)
         const cumulativeAmounts: { row: LedgerRow; cumulative: number }[] = [];
         let total = 0;
-        remainingData.forEach(row => {
-          // 추가 안전장치: 월계, 누계 행이면 건너뛰기
-          if (isSummaryRow(row)) return;
-          
+        dataWithAmount.forEach(row => {
           let amount = 0;
           if (musAmountType === 'debit' && debitHeader) {
             amount = Math.abs(cleanAmount(row[debitHeader]));
@@ -332,8 +380,8 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
           }
           
           if (amount > 0) {
-          total += amount;
-          cumulativeAmounts.push({ row, cumulative: total });
+            total += amount;
+            cumulativeAmounts.push({ row, cumulative: total });
           }
         });
 

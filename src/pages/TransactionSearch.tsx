@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Search, Download, Check, ChevronsUpDown } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { findDebitCreditHeaders } from '@/lib/headerUtils';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -354,15 +355,11 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
   const monthlyData = useMemo(() => {
     if (displayMode !== 'monthly' || searchResults.length === 0) return null;
 
-    const dateHeader = Object.keys(searchResults[0] || {}).find(h => 
+    const headers = Object.keys(searchResults[0] || {});
+    const dateHeader = headers.find(h => 
       h.includes('일자') || h.includes('날짜')
     );
-    const debitHeader = Object.keys(searchResults[0] || {}).find(h => 
-      h.includes('차변')
-    );
-    const creditHeader = Object.keys(searchResults[0] || {}).find(h => 
-      h.includes('대변')
-    );
+    const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, searchResults, dateHeader);
 
     if (!dateHeader) return null;
 
@@ -430,10 +427,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                          headers.find(h => h.includes('적요') || h.includes('내용') || h.includes('비고'));
       const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date']) ||
                          headers.find(h => h.includes('일자') || h.includes('날짜'));
-      const debitHeader = robustFindHeader(headers, ['차변', 'debit', '차변금액']) ||
-                          headers.find(h => h.includes('차변'));
-      const creditHeader = robustFindHeader(headers, ['대변', 'credit', '대변금액']) ||
-                           headers.find(h => h.includes('대변'));
+      const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, data, dateHeader);
 
       // 디버깅: 거래처 검색 시 로그 출력
       if (searchVendor && vendorHeader) {
