@@ -170,6 +170,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
   // Cost Tracking State
   const [totalCost, setTotalCost] = useState<number>(0);
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
+  const [estimatedTime, setEstimatedTime] = useState<number | null>(null); // 예상 시간 (초)
   
   // API 요청 빈도 제한을 위한 상태
   const lastApiRequestTimeRef = useRef<number>(0);
@@ -844,7 +845,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
     setGeneralDrilldownType(null);
     setAccountDrilldownType(null);
     setHolidayDrilldown(null);
-    setEstimatedCost(null); 
+    setEstimatedCost(null);
+    setEstimatedTime(null);
     
     if (type === 'counter') {
       setCounterSearchTerm('');
@@ -862,6 +864,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
     setAccountDrilldownType(null);
     setHolidayDrilldown(null);
     setEstimatedCost(null);
+    setEstimatedTime(null);
   };
 
   const calculateEstimate = (type: AnalysisType): number => {
@@ -896,7 +899,76 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
 
     const cost = Number(totalKRW.toFixed(2));
     setEstimatedCost(cost);
+    
+    // 예상 시간도 함께 계산
+    if (type === 'general') {
+      const expenses = analysisEntries.filter(e => e.debit > 0);
+      const totalEntries = expenses.length;
+      const sampleSize = Math.min(1000, totalEntries);
+      
+      // 예상 시간 계산 (초)
+      // 기본 처리 시간: 15초
+      // 데이터 건수에 따른 추가 시간: 1000건당 약 3초
+      const baseTime = 15;
+      const dataTime = Math.ceil(sampleSize / 1000) * 3;
+      const estimatedSeconds = Math.min(120, Math.max(20, Math.ceil(baseTime + dataTime)));
+      
+      setEstimatedTime(estimatedSeconds);
+    }
+    
     return cost;
+  };
+
+  // 일반사항 분석 예상 시간 계산
+  const calculateGeneralEstimatedTime = (): number => {
+    const expenses = analysisEntries.filter(e => e.debit > 0);
+    const totalEntries = expenses.length;
+    const sampleSize = Math.min(1000, totalEntries);
+    
+    // 예상 시간 계산 (초)
+    // 기본 처리 시간: 15초
+    // 데이터 건수에 따른 추가 시간: 1000건당 약 3초
+    const baseTime = 15;
+    const dataTime = Math.ceil(sampleSize / 1000) * 3;
+    const estimatedSeconds = Math.min(120, Math.max(20, Math.ceil(baseTime + dataTime)));
+    
+    return estimatedSeconds;
+  };
+
+  // 적합성 분석 예상 시간 계산
+  const calculateEstimatedTime = (): number => {
+    const filteredEntries = analysisEntries.filter(e => 
+      e.debit >= appropriatenessMinAmount && e.description && e.description.length > 1
+    );
+    
+    if (filteredEntries.length === 0) {
+      return 0;
+    }
+    
+    // 계정과목별 그룹화
+    const accountGroups = new Map<string, JournalEntry[]>();
+    filteredEntries.forEach(e => {
+      if (!accountGroups.has(e.accountName)) {
+        accountGroups.set(e.accountName, []);
+      }
+      accountGroups.get(e.accountName)!.push(e);
+    });
+    
+    const accountCount = accountGroups.size;
+    const totalEntries = filteredEntries.length;
+    
+    // 예상 시간 계산 (초)
+    // 기본 처리 시간: 10초
+    // 계정과목 수에 따른 추가 시간: 계정당 약 0.5초
+    // 데이터 건수에 따른 추가 시간: 1000건당 약 2초
+    const baseTime = 10;
+    const accountTime = accountCount * 0.5;
+    const dataTime = Math.ceil(totalEntries / 1000) * 2;
+    
+    // 최소 15초, 최대 120초
+    const estimatedSeconds = Math.min(120, Math.max(15, Math.ceil(baseTime + accountTime + dataTime)));
+    
+    return estimatedSeconds;
   };
 
   const runAnalysis = async (type: AnalysisType) => {
@@ -1178,6 +1250,124 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
       }));
     const title = generalDrilldownType === 'debit' ? '차변_상세내역' : '대변_상세내역';
     exportToExcel(filteredData, title, title, [12, 15, 20, 40, 20, 12, 12]);
+  };
+
+  // 텍스트를 일정 길이로 제한하고 줄바꿈 추가하는 함수
+  const wrapText = (text: string, maxLength: number = 80): string[] => {
+    if (text.length <= maxLength) {
+      return [text];
+    }
+    
+    const lines: string[] = [];
+    let currentLine = '';
+    
+    // 공백, 구두점, 마크다운 기호 등을 기준으로 분리
+    const words = text.split(/(\s+|\.|,|;|:|!|\?|\)|\(|\[|\]|{|}|#|\*|-)/);
+    
+    for (const word of words) {
+      if (!word) continue;
+      
+      // 현재 줄에 단어를 추가했을 때 길이 확인
+      const testLine = currentLine + word;
+      
+      if (testLine.length <= maxLength) {
+        currentLine = testLine;
+      } else {
+        // 현재 줄이 비어있지 않으면 저장하고 새 줄 시작
+        if (currentLine.trim()) {
+          lines.push(currentLine.trim());
+        }
+        // 단어 자체가 maxLength보다 길면 강제로 자름
+        if (word.length > maxLength) {
+          // 긴 단어를 여러 줄로 분할
+          let remaining = word;
+          while (remaining.length > maxLength) {
+            lines.push(remaining.substring(0, maxLength));
+            remaining = remaining.substring(maxLength);
+          }
+          currentLine = remaining;
+        } else {
+          currentLine = word;
+        }
+      }
+    }
+    
+    // 마지막 줄 추가
+    if (currentLine.trim()) {
+      lines.push(currentLine.trim());
+    }
+    
+    return lines.length > 0 ? lines : [text];
+  };
+
+  // AI 종합의견 엑셀 다운로드
+  const handleGeneralOpinionDownload = () => {
+    if (!generalData) return;
+    
+    // AI 종합 의견을 브라우저 화면처럼 읽기 쉽게 포맷팅
+    // 텍스트를 줄바꿈 기준으로 분리하여 여러 행으로 저장
+    const opinionLines = generalData.content.split('\n').filter(line => line.trim() !== '');
+    
+    // 헤더 행
+    const data: any[] = [
+      {
+        '항목': 'Risk Score',
+        '값': `${generalData.riskScore}/100`
+      }
+    ];
+    
+    // AI 종합 의견을 여러 행으로 저장
+    // 첫 번째 행에 항목명, 나머지 행에는 빈 항목명과 의견 내용
+    if (opinionLines.length > 0) {
+      // 첫 번째 줄 처리 (길이 제한 적용)
+      const firstLineWrapped = wrapText(opinionLines[0], 80);
+      data.push({
+        '항목': 'AI 종합 의견',
+        '값': firstLineWrapped[0] // 첫 번째 줄
+      });
+      
+      // 첫 번째 줄이 여러 줄로 나뉜 경우 나머지 추가
+      for (let i = 1; i < firstLineWrapped.length; i++) {
+        data.push({
+          '항목': '',
+          '값': firstLineWrapped[i]
+        });
+      }
+      
+      // 나머지 줄들을 별도 행으로 추가 (각 줄에 길이 제한 적용)
+      for (let i = 1; i < opinionLines.length; i++) {
+        const wrappedLines = wrapText(opinionLines[i], 80);
+        wrappedLines.forEach(wrappedLine => {
+          data.push({
+            '항목': '', // 빈 항목명
+            '값': wrappedLine
+          });
+        });
+      }
+    } else {
+      // 줄바꿈이 없는 경우 원본을 길이 제한 적용하여 분할
+      const wrappedLines = wrapText(generalData.content, 80);
+      data.push({
+        '항목': 'AI 종합 의견',
+        '값': wrappedLines[0]
+      });
+      
+      // 나머지 줄들 추가
+      for (let i = 1; i < wrappedLines.length; i++) {
+        data.push({
+          '항목': '',
+          '값': wrappedLines[i]
+        });
+      }
+    }
+    
+    data.push({
+      '항목': '분석 일시',
+      '값': new Date().toLocaleString('ko-KR')
+    });
+    
+    // 텍스트를 여러 행으로 나누어 저장하여 읽기 쉽게 함
+    exportToExcel(data, '일반사항_AI종합의견', 'AI 종합 의견', [20, 80]);
   };
 
   const getDebitCreditDrilldownData = () => {
@@ -1916,10 +2106,27 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                             예상 비용 확인
                           </Button>
                         </div>
-                        {estimatedCost !== null && (
-                          <p className="mt-4 text-sm text-muted-foreground">
-                            예상 비용: 약 ₩{estimatedCost.toFixed(2)}
-                          </p>
+                        {(estimatedCost !== null || analysisEntries.length > 0) && (
+                          <div className="mt-4 space-y-1">
+                            {estimatedCost !== null && (
+                              <p className="text-sm text-muted-foreground">
+                                예상 비용: 약 ₩{estimatedCost.toFixed(2)}
+                              </p>
+                            )}
+                            {analysisEntries.length > 0 && (() => {
+                              const estimatedTimeSeconds = calculateGeneralEstimatedTime();
+                              const minutes = Math.floor(estimatedTimeSeconds / 60);
+                              const seconds = estimatedTimeSeconds % 60;
+                              const timeText = minutes > 0 
+                                ? `${minutes}분 ${seconds}초`
+                                : `${seconds}초`;
+                              return (
+                                <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">
+                                  ⏱️ 예상 소요 시간: 약 {timeText}
+                                </p>
+                              );
+                            })()}
+                          </div>
                         )}
                       </div>
                     )}
@@ -1931,9 +2138,20 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                     )}
                     {generalStatus === 'success' && generalData && (
                       <div>
-                        <Badge className="mb-4">
-                          Risk Score: {generalData.riskScore}/100
-                        </Badge>
+                        <div className="flex items-center justify-between mb-4">
+                          <Badge>
+                            Risk Score: {generalData.riskScore}/100
+                          </Badge>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleGeneralOpinionDownload}
+                            className="flex items-center gap-1"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            엑셀 다운로드
+                          </Button>
+                        </div>
                         <p className="whitespace-pre-wrap">{generalData.content}</p>
                       </div>
                     )}
@@ -2936,10 +3154,46 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                     AI 제안 금액: {suggestedMinAmount.toLocaleString()}원
                                   </p>
                                   {suggestedAmountReason && (
-                                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                                    <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
                                       {suggestedAmountReason}
                                     </p>
                                   )}
+                                  {/* AI 제안 금액 기준 예상 시간 표시 */}
+                                  {analysisEntries.length > 0 && (() => {
+                                    const filteredEntries = analysisEntries.filter(e => 
+                                      e.debit >= suggestedMinAmount && e.description && e.description.length > 1
+                                    );
+                                    
+                                    if (filteredEntries.length > 0) {
+                                      const accountGroups = new Map<string, JournalEntry[]>();
+                                      filteredEntries.forEach(e => {
+                                        if (!accountGroups.has(e.accountName)) {
+                                          accountGroups.set(e.accountName, []);
+                                        }
+                                        accountGroups.get(e.accountName)!.push(e);
+                                      });
+                                      
+                                      const accountCount = accountGroups.size;
+                                      const totalEntries = filteredEntries.length;
+                                      const baseTime = 10;
+                                      const accountTime = accountCount * 0.5;
+                                      const dataTime = Math.ceil(totalEntries / 1000) * 2;
+                                      const estimatedSeconds = Math.min(120, Math.max(15, Math.ceil(baseTime + accountTime + dataTime)));
+                                      
+                                      const minutes = Math.floor(estimatedSeconds / 60);
+                                      const seconds = estimatedSeconds % 60;
+                                      const timeText = minutes > 0 
+                                        ? `${minutes}분 ${seconds}초`
+                                        : `${seconds}초`;
+                                      
+                                      return (
+                                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-1">
+                                          ⏱️ 이 금액 기준 예상 소요 시간: 약 {timeText}
+                                        </p>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                 </div>
                                 <Button
                                   variant="outline"
@@ -2967,10 +3221,25 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                           적합성 분석 실행하기
                         </Button>
                         {analysisEntries.length > 0 && (
-                          <div className="text-xs text-muted-foreground">
-                            현재 설정 기준으로 분석될 예상 항목 수: {
-                              analysisEntries.filter(e => e.debit >= appropriatenessMinAmount && e.description && e.description.length > 1).length.toLocaleString()
-                            }건
+                          <div className="space-y-1">
+                            <div className="text-xs text-muted-foreground">
+                              현재 설정 기준으로 분석될 예상 항목 수: {
+                                analysisEntries.filter(e => e.debit >= appropriatenessMinAmount && e.description && e.description.length > 1).length.toLocaleString()
+                              }건
+                            </div>
+                            {(() => {
+                              const estimatedTimeSeconds = calculateEstimatedTime();
+                              const minutes = Math.floor(estimatedTimeSeconds / 60);
+                              const seconds = estimatedTimeSeconds % 60;
+                              const timeText = minutes > 0 
+                                ? `${minutes}분 ${seconds}초`
+                                : `${seconds}초`;
+                              return (
+                                <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                  ⏱️ 예상 소요 시간: 약 {timeText}
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>

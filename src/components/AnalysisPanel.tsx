@@ -62,41 +62,108 @@ export const AnalysisPanel = ({ ledgerData, ledgerId }: AnalysisPanelProps) => {
     const wb = XLSX.utils.book_new();
     
     // 마크다운 텍스트를 줄 단위로 분리하고 구조화
-    const lines = analysisContent.split('\n').filter(line => line.trim() !== '');
-    const formattedLines = lines.map(line => {
-      // 제목 형식 (#, ##, ###)인 경우 굵게 표시를 위해 별도 처리
-      if (line.startsWith('###')) {
-        return [line.replace(/^###\s*/, '').trim()];
-      } else if (line.startsWith('##')) {
-        return [line.replace(/^##\s*/, '').trim()];
-      } else if (line.startsWith('#')) {
-        return [line.replace(/^#\s*/, '').trim()];
-      } else if (line.startsWith('-') || line.startsWith('*')) {
-        // 목록 항목
-        return ['  ' + line.replace(/^[-*]\s*/, '• ').trim()];
-      } else if (line.match(/^\d+\./)) {
-        // 번호 목록
-        return ['  ' + line.trim()];
-      } else {
-        return [line.trim()];
-      }
-    });
-    
-    const wsData = [
+    const lines = analysisContent.split('\n');
+    const wsData: any[] = [
       ['분석 유형', typeName],
       ['계정', accountName],
       ['분석 일시', new Date().toLocaleString('ko-KR')],
       [],
       ['분석 결과'],
       [],
-      ...formattedLines,
     ];
+    
+    let currentSection: any[] = [];
+    let isInSection = false;
+    let sectionTitle = '';
+    
+    lines.forEach((line, index) => {
+      const trimmedLine = line.trim();
+      
+      // 빈 줄 처리
+      if (trimmedLine === '') {
+        if (isInSection && currentSection.length > 0) {
+          // 섹션 내용이 있으면 빈 줄 추가
+          currentSection.push(['']);
+        }
+        return;
+      }
+      
+      // 제목 처리 (#, ##, ###)
+      if (trimmedLine.startsWith('###')) {
+        // 이전 섹션 마무리
+        if (isInSection && currentSection.length > 0) {
+          wsData.push(...currentSection);
+          wsData.push([]); // 섹션 구분을 위한 빈 행
+          currentSection = [];
+        }
+        sectionTitle = trimmedLine.replace(/^###\s*/, '').trim();
+        currentSection.push([`[${sectionTitle}]`]); // 박스 제목처럼 표시
+        isInSection = true;
+      } else if (trimmedLine.startsWith('##')) {
+        // 이전 섹션 마무리
+        if (isInSection && currentSection.length > 0) {
+          wsData.push(...currentSection);
+          wsData.push([]); // 섹션 구분을 위한 빈 행
+          currentSection = [];
+        }
+        sectionTitle = trimmedLine.replace(/^##\s*/, '').trim();
+        currentSection.push([`[${sectionTitle}]`]); // 박스 제목처럼 표시
+        isInSection = true;
+      } else if (trimmedLine.startsWith('#')) {
+        // 이전 섹션 마무리
+        if (isInSection && currentSection.length > 0) {
+          wsData.push(...currentSection);
+          wsData.push([]); // 섹션 구분을 위한 빈 행
+          currentSection = [];
+        }
+        sectionTitle = trimmedLine.replace(/^#\s*/, '').trim();
+        currentSection.push([`[${sectionTitle}]`]); // 박스 제목처럼 표시
+        isInSection = true;
+      } else {
+        // 섹션 내용
+        if (!isInSection) {
+          // 제목이 없는 첫 내용인 경우
+          isInSection = true;
+          currentSection = [];
+        }
+        
+        if (trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
+          // 목록 항목
+          currentSection.push(['  • ' + trimmedLine.replace(/^[-*]\s*/, '').trim()]);
+        } else if (trimmedLine.match(/^\d+\./)) {
+          // 번호 목록
+          currentSection.push(['  ' + trimmedLine.trim()]);
+        } else {
+          // 일반 텍스트
+          currentSection.push([trimmedLine]);
+        }
+      }
+    });
+    
+    // 마지막 섹션 추가
+    if (isInSection && currentSection.length > 0) {
+      wsData.push(...currentSection);
+    }
     
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [{ wch: 100 }];
     
-    // 헤더 행들 스타일 설정
-    if (ws['A5']) ws['A5'].s = { font: { bold: true } };
+    // 제목 행들 굵게 표시 (박스 제목처럼)
+    let rowIndex = 5; // '분석 결과' 행
+    wsData.forEach((row, idx) => {
+      if (idx > 5 && row[0] && typeof row[0] === 'string' && row[0].startsWith('[') && row[0].endsWith(']')) {
+        const cellAddress = XLSX.utils.encode_cell({ r: rowIndex, c: 0 });
+        if (ws[cellAddress]) {
+          ws[cellAddress].s = { font: { bold: true, sz: 12 } };
+        }
+      }
+      rowIndex++;
+    });
+    
+    // '분석 결과' 헤더도 굵게
+    if (ws['A5']) {
+      ws['A5'].s = { font: { bold: true, sz: 14 } };
+    }
     
     XLSX.utils.book_append_sheet(wb, ws, '분석결과');
     XLSX.writeFile(wb, `AI분석_${typeName}_${accountName}_${new Date().toISOString().split('T')[0]}.xlsx`);
