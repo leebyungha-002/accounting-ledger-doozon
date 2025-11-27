@@ -28,6 +28,8 @@
 ### 3단계: 설정
 **Framework Preset:** Vite 선택 (자동 감지됨)
 
+> 💡 **참고**: 프로젝트에 `vercel.json` 파일이 포함되어 있어서 대부분의 설정이 자동으로 감지됩니다.
+
 **Build Command:**
 ```
 npm run build
@@ -43,14 +45,23 @@ dist
 npm install
 ```
 
-### 4단계: 환경 변수 (선택사항)
-Supabase를 사용한다면:
+**Root Directory:** (필요한 경우)
+```
+./
+```
 
-**Environment Variables 추가:**
-```
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
+### 4단계: 환경 변수 (선택사항)
+이 프로젝트는 Google Gemini API를 사용하며, API 키는 **클라이언트 사이드에서 localStorage에 저장**됩니다.
+
+따라서 **환경 변수 설정이 필요하지 않습니다!** ✅
+
+사용자가 웹 인터페이스에서 직접 API 키를 입력하면 됩니다.
+
+> 💡 Supabase를 사용한다면 (현재는 사용하지 않음):
+> ```
+> VITE_SUPABASE_URL=your_supabase_url
+> VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+> ```
 
 ### 5단계: 배포!
 **"Deploy"** 버튼 클릭!

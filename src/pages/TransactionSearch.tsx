@@ -570,8 +570,34 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
         return result;
       });
       const ws = XLSX.utils.json_to_sheet(dataWithAccount);
-    XLSX.utils.book_append_sheet(wb, ws, '검색결과');
-      XLSX.writeFile(wb, `거래검색_상세내역_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.utils.book_append_sheet(wb, ws, '검색결과');
+      
+      // 파일명에 계정명 포함 (파일명에 사용할 수 없는 문자 제거)
+      const sanitizeFileName = (name: string): string => {
+        return name.replace(/[<>:"/\\|?*]/g, '_').trim();
+      };
+      
+      let accountNameForFile = '';
+      if (selectedAccount) {
+        accountNameForFile = sanitizeFileName(selectedAccount);
+      } else if (searchResults.length > 0) {
+        // 검색 결과에서 고유한 계정명 추출
+        const uniqueAccounts = new Set(
+          searchResults
+            .map(row => row['계정과목'])
+            .filter((name): name is string => typeof name === 'string' && name.trim() !== '')
+        );
+        if (uniqueAccounts.size === 1) {
+          accountNameForFile = sanitizeFileName(Array.from(uniqueAccounts)[0]);
+        } else if (uniqueAccounts.size > 1) {
+          accountNameForFile = '다중계정';
+        }
+      }
+      
+      const fileName = accountNameForFile 
+        ? `거래검색_${accountNameForFile}_상세내역_${new Date().toISOString().split('T')[0]}.xlsx`
+        : `거래검색_상세내역_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
     }
 
     toast({

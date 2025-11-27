@@ -50,15 +50,18 @@ REM npm run dev를 별도 PowerShell 창에서 시작
 echo 새 창에서 개발 서버를 시작합니다...
 start "개발 서버" powershell -NoExit -Command "cd '%~dp0'; npm run dev"
 
-REM 서버가 시작될 때까지 대기 (15초)
+REM 서버가 시작될 때까지 대기 (20초로 증가)
 echo.
-echo 서버 시작을 기다리는 중 (약 15초)...
-timeout /t 15 /nobreak >nul
+echo 서버 시작을 기다리는 중 (약 20초)...
+timeout /t 20 /nobreak >nul
 
 REM 브라우저에서 /analysis 경로 자동으로 열기
 echo.
 echo 브라우저를 열고 있습니다...
-start http://localhost:8080/analysis
+REM 여러 방법으로 브라우저 열기 시도
+start "" "http://localhost:8080/analysis" 2>nul
+timeout /t 1 /nobreak >nul
+start "" "http://127.0.0.1:8080/analysis" 2>nul
 
 echo.
 echo ========================================

@@ -1,0 +1,10 @@
+[33m7a85f68[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m feat: Add Excel download for general analysis AI opinion and estimated time display
+[33m9528256[m feat: ?ㅽ겕濡ㅻ컮 ?대┃ 諛⑹? 諛??곹빀??遺꾩꽍 ?덉긽 ?쒓컙 ?쒖떆 媛쒖꽑
+[33m05f76e9[m 怨꾩젙蹂꾩썝??AI 遺꾩꽍???몃?媛먯궗??愿?먯쑝濡?媛쒖꽑 諛?媛먯궗?섑뵆留?湲곕뒫 媛쒖꽑
+[33m7b490b8[m ?묒뾽 ??? 異붽? 蹂寃쎌궗??而ㅻ컠
+[33m6fd9810[m 계정별 AI 분석 UI 개선 및 엑셀 다운로드 기능 추가
+[33mc6fc161[m 계정별 AI 분석 개선: 차변/대변 구분 통계 및 계정 유형별 샘플링
+[33mdcad8a8[m 작업 저장: 차변/대변 헤더 인식 개선 및 감사샘플링 기준 금액 선택 기능 추가
+[33m2594ddf[m 작업 저장: 자동 커밋 스크립트 추가 및 README 업데이트
+[33m32316bb[m docs: Cursor 세션 참고사항 파일 추가 - 작업 종료 전 커밋 확인 요청사항 기록
+[33m8271edf[m fix: 차변/대변 인식 로직 수정 및 Excel 헤더 읽기 개선

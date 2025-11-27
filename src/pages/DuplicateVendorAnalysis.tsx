@@ -66,13 +66,13 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
 
   // 매출/매입 계정 찾기
   const relevantAccounts = useMemo(() => {
-    // 대변 계정: '매출' 또는 '매출액'으로 끝나는 계정 (괄호 앞부분 확인)
+    // 대변 계정: '매출' 또는 '매출액' 또는 '공사'로 끝나는 계정 (괄호 앞부분 확인)
     const salesAccounts = accountNames.filter(name => {
       // 괄호 앞부분만 추출 (예: "제품매출 (41110)" → "제품매출")
       const nameWithoutCode = name.split(/[\(（]/)[0].trim();
       const normalized = nameWithoutCode.replace(/\s/g, '').trim();
-      // '매출' 또는 '매출액'으로 끝나는지 확인
-      const matches = normalized.endsWith('매출') || normalized.endsWith('매출액');
+      // '매출', '매출액', 또는 '공사'로 끝나는지 확인 (토목공사, 용역공사, 비계공사, 건축공사 등)
+      const matches = normalized.endsWith('매출') || normalized.endsWith('매출액') || normalized.endsWith('공사');
       if (matches) {
         console.log(`✅ 매출 계정 발견: "${name}" (정리 후: "${normalized}")`);
       }

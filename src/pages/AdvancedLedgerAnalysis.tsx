@@ -1270,8 +1270,12 @@ const AdvancedLedgerAnalysis = () => {
                       XLSX.utils.book_append_sheet(wb, wsMonthly, '월별요약');
                     }
                     
-                    // 상세 거래 내역도 포함
-                    const wsDetail = XLSX.utils.json_to_sheet(currentAccountData);
+                    // 상세 거래 내역도 포함 (계정명 추가)
+                    const detailDataWithAccount = currentAccountData.map(row => ({
+                      계정명: selectedAccount,
+                      ...row
+                    }));
+                    const wsDetail = XLSX.utils.json_to_sheet(detailDataWithAccount);
                     XLSX.utils.book_append_sheet(wb, wsDetail, '상세내역');
                     
                     XLSX.writeFile(wb, `총계정원장_${selectedAccount}_${new Date().toISOString().split('T')[0]}.xlsx`);
