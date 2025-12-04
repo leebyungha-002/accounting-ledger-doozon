@@ -6,12 +6,89 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// 익명화 매핑 테이블 (실제 이름 -> 가명)
+const vendorMapping = new Map<string, string>();
+const descriptionMapping = new Map<string, string>();
+let vendorCounter = 1;
+let descriptionCounter = 1;
+
+// 거래처명 익명화
+function anonymizeVendor(realName: string): string {
+  if (!realName || realName.trim() === '') return '';
+  const trimmed = realName.trim();
+  if (vendorMapping.has(trimmed)) {
+    return vendorMapping.get(trimmed)!;
+  }
+  const anonymized = `거래처${String.fromCharCode(64 + vendorCounter)}`;
+  vendorMapping.set(trimmed, anonymized);
+  vendorCounter++;
+  return anonymized;
+}
+
+// 적요 익명화
+function anonymizeDescription(realDesc: string): string {
+  if (!realDesc || realDesc.trim() === '') return '';
+  const trimmed = realDesc.trim();
+  if (descriptionMapping.has(trimmed)) {
+    return descriptionMapping.get(trimmed)!;
+  }
+  const anonymized = `적요${descriptionCounter}`;
+  descriptionMapping.set(trimmed, anonymized);
+  descriptionCounter++;
+  return anonymized;
+}
+
+// 분석 결과 텍스트 복원
+function deanonymizeText(text: string): string {
+  let result = text;
+  for (const [realName, anonymized] of vendorMapping.entries()) {
+    const regex = new RegExp(`\\b${anonymized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    result = result.replace(regex, realName);
+  }
+  for (const [realDesc, anonymized] of descriptionMapping.entries()) {
+    const regex = new RegExp(`\\b${anonymized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    result = result.replace(regex, realDesc);
+  }
+  return result;
+}
+
+// ledgerData의 거래처명과 적요 익명화
+function anonymizeLedgerData(data: any[]): any[] {
+  return data.map((row: any) => {
+    const anonymized: any = { ...row };
+    
+    // 거래처명 필드 찾아서 익명화
+    const vendorFields = ['거래처', '거래처명', '계   정   별   원   장', '__EMPTY_1', '__EMPTY_2'];
+    for (const field of vendorFields) {
+      if (row[field] && typeof row[field] === 'string' && row[field].trim()) {
+        anonymized[field] = anonymizeVendor(row[field]);
+      }
+    }
+    
+    // 적요 필드 찾아서 익명화
+    const descFields = ['적요', '적요란', '내용', '비고', 'description'];
+    for (const field of descFields) {
+      if (row[field] && typeof row[field] === 'string' && row[field].trim()) {
+        anonymized[field] = anonymizeDescription(row[field]);
+      }
+    }
+    
+    return anonymized;
+  });
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // 매핑 초기화 (새 요청마다)
+    vendorMapping.clear();
+    descriptionMapping.clear();
+    vendorCounter = 1;
+    descriptionCounter = 1;
+
     const { ledgerData, analysisType, accountName, question, benfordResults, totalCount } = await req.json();
     console.log('Analyzing ledger data, type:', analysisType, 'account:', accountName);
 
@@ -70,7 +147,10 @@ ${JSON.stringify(benfordResults, null, 2)}
       }
 
       const data = await response.json();
-      const analysisResult = data.choices[0].message.content;
+      let analysisResult = data.choices[0].message.content;
+
+      // 분석 결과에서 익명화된 이름을 실제 이름으로 복원
+      analysisResult = deanonymizeText(analysisResult);
 
       return new Response(
         JSON.stringify({ analysis: analysisResult }),
@@ -80,7 +160,9 @@ ${JSON.stringify(benfordResults, null, 2)}
 
     // Handle Account Analysis
     if (analysisType === 'account') {
-      const dataForPrompt = JSON.stringify(ledgerData, null, 2);
+      // 익명화된 데이터로 프롬프트 생성
+      const anonymizedData = anonymizeLedgerData(ledgerData);
+      const dataForPrompt = JSON.stringify(anonymizedData, null, 2);
       const prompt = `
 당신은 전문 회계 분석가 AI입니다. 제공된 회계 장부 데이터를 바탕으로 사용자의 질문에 대해 전문적이고 이해하기 쉽게 분석해주세요.
 
@@ -153,8 +235,11 @@ ${dataForPrompt}
       '코드'
     ];
 
+    // 익명화된 데이터로 변환 (구글 클라우드로 전송 전)
+    const anonymizedLedgerData = anonymizeLedgerData(ledgerData);
+
     // 합계 행 필터링
-    const filteredData = ledgerData.filter((row: any) => {
+    const filteredData = anonymizedLedgerData.filter((row: any) => {
       // 거래처명 확인
       const possibleClientFields = ['계   정   별   원   장', '__EMPTY_1', '__EMPTY_2', '거래처', '거래처명'];
       
@@ -284,7 +369,10 @@ ${dataForPrompt}
     }
 
     const data = await response.json();
-    const analysisResult = data.choices[0].message.content;
+    let analysisResult = data.choices[0].message.content;
+
+    // 분석 결과에서 익명화된 이름을 실제 이름으로 복원
+    analysisResult = deanonymizeText(analysisResult);
 
     console.log('Analysis completed successfully');
 

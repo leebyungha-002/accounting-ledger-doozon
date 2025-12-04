@@ -5,6 +5,11 @@
  */
 
 import { createGeminiClient, getApiKey } from '@/lib/geminiClient';
+import {
+  anonymizeJournalEntries,
+  deanonymizeAnalysisText,
+  deanonymizeFlaggedItems,
+} from '@/lib/anonymization';
 import type { 
   JournalEntry, 
   GeneralAnalysisResult, 
@@ -112,7 +117,9 @@ export const analyzeGeneral = async (
     return null;
   }
 
-  const context = prepareContext(entries);
+  // 익명화된 엔트리로 컨텍스트 준비 (구글 클라우드로 전송)
+  const anonymizedEntries = anonymizeJournalEntries(entries);
+  const context = prepareContext(anonymizedEntries);
 
   const prompt = `
 You are a professional financial auditor for Korean corporate accounting.
@@ -174,6 +181,9 @@ Keep the content professional and in Korean. Use markdown for formatting.
         console.error(`⚠️ ${modelName}: Invalid response format:`, parsed);
         continue;
       }
+
+      // 분석 결과 텍스트에서 익명화된 이름을 실제 이름으로 복원
+      parsed.content = deanonymizeAnalysisText(parsed.content);
 
       console.log(`✅ ${modelName} 모델로 분석 성공!`);
       return parsed;
@@ -244,7 +254,9 @@ export const analyzeHoliday = async (
     .slice(0, 700);
   const limitedEntries = [...topExpenses, ...randomExpenses];
 
-  const dataStr = limitedEntries.map(e => 
+  // 익명화된 엔트리로 변환 (구글 클라우드로 전송)
+  const anonymizedEntries = anonymizeJournalEntries(limitedEntries);
+  const dataStr = anonymizedEntries.map(e => 
     `[${e.date}] ${e.accountName} | ${e.vendor} | ${e.description} | ${e.debit}`
   ).join('\n');
 
@@ -299,6 +311,9 @@ If none, items should be an empty array.
         console.error(`⚠️ ${modelName}: Invalid response format:`, parsed);
         continue;
       }
+
+      // 분석 결과에서 익명화된 이름을 실제 이름으로 복원
+      parsed.items = parsed.items.map(item => deanonymizeAnalysisText(item));
 
       console.log(`✅ ${modelName} 모델로 분석 성공!`);
       return parsed;
@@ -587,7 +602,9 @@ export const analyzeAppropriateness = async (
     };
   }
 
-  const dataStr = finalSample.map(e => 
+  // 익명화된 엔트리로 변환 (구글 클라우드로 전송)
+  const anonymizedSample = anonymizeJournalEntries(finalSample);
+  const dataStr = anonymizedSample.map(e => 
     `${e.date} | Account:${e.accountName} | Desc:${e.description} | Amt:${e.debit}`
   ).join('\n');
 
@@ -662,6 +679,14 @@ Return JSON in the following format:
         parsed.flaggedItems = parsed.flaggedItems.filter(item => 
           item.date && item.accountName && item.description !== undefined && item.amount !== undefined && item.reason
         );
+
+        // 분석 결과에서 익명화된 이름을 실제 이름으로 복원
+        parsed.flaggedItems = deanonymizeFlaggedItems(parsed.flaggedItems);
+        parsed.flaggedItems = parsed.flaggedItems.map(item => ({
+          ...item,
+          reason: deanonymizeAnalysisText(item.reason),
+          recommendedAccount: item.recommendedAccount ? deanonymizeAnalysisText(item.recommendedAccount) : item.recommendedAccount,
+        }));
 
         console.log(`✅ ${modelName} 모델로 분석 성공!`);
         return parsed;

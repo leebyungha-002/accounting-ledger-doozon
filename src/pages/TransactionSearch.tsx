@@ -13,6 +13,7 @@ import { ArrowLeft, Search, Download, Check, ChevronsUpDown } from 'lucide-react
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { findDebitCreditHeaders } from '@/lib/headerUtils';
+import { maskAccountNumbersInRows } from '@/lib/anonymization';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -203,9 +204,13 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
     });
   }
 
-  const headers = data.length > 0 ? Object.keys(data[0]) : [];
+  // 예금계정/차입금계정의 계좌번호 마스킹
+  const accountNameHeader = robustFindHeader(orderedHeaders, ['계정과목', '계정', 'account', '계정명']);
+  const maskedData = maskAccountNumbersInRows(data, accountNameHeader);
+
+  const headers = maskedData.length > 0 ? Object.keys(maskedData[0]) : [];
   
-  return { data, headers };
+  return { data: maskedData, headers };
 };
 
 export const TransactionSearch: React.FC<TransactionSearchProps> = ({

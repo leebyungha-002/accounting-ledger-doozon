@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, FileSpreadsheet } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
+import { maskAccountNumbersInRows } from '@/lib/anonymization';
 
 interface FileUploadProps {
   onFileUpload: (data: any[], fileName: string) => void;
@@ -36,10 +37,19 @@ export const FileUpload = ({ onFileUpload }: FileUploadProps) => {
         
         if (jsonData.length > 0) {
           // 각 데이터에 시트 이름 추가
-          const dataWithSheet = jsonData.map((row: any) => ({
+          let dataWithSheet = jsonData.map((row: any) => ({
             ...(row as object),
             '시트명': sheetName
           }));
+          
+          // 예금계정/차입금계정의 계좌번호 마스킹
+          // 계정명 필드 찾기 (다양한 가능한 필드명 시도)
+          const accountNameHeader = Object.keys(dataWithSheet[0] || {}).find(
+            key => key.includes('계정') || key.includes('account') || key === '계   정   별   원   장'
+          );
+          
+          dataWithSheet = maskAccountNumbersInRows(dataWithSheet, accountNameHeader);
+          
           allData = [...allData, ...dataWithSheet];
           sheetCount++;
         }

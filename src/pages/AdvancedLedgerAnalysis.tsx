@@ -22,6 +22,7 @@ import { TransactionSearch } from './TransactionSearch';
 import { FinancialStatementAnalysis } from './FinancialStatementAnalysis';
 import { smartSample, calculateSampleSize, generateDataSummary } from '@/lib/smartSampling';
 import { findDebitCreditHeaders } from '@/lib/headerUtils';
+import { maskAccountNumbersInRows } from '@/lib/anonymization';
 import { analyzeWithFlash, saveApiKey, getApiKey, deleteApiKey, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { addUsageRecord, getUsageSummary, clearUsageHistory, exportUsageToCSV, type UsageSummary } from '@/lib/usageTracker';
 import {
@@ -217,7 +218,11 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
     });
   }
 
-  return { data, headers, orderedHeaders };
+  // 예금계정/차입금계정의 계좌번호 마스킹
+  const accountNameHeader = robustFindHeader(orderedHeaders, ['계정과목', '계정', 'account', '계정명']);
+  const maskedData = maskAccountNumbersInRows(data, accountNameHeader);
+
+  return { data: maskedData, headers, orderedHeaders };
 };
 
 const cleanAmount = (val: any): number => {
