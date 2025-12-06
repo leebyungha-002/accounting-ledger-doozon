@@ -61,14 +61,27 @@ const normalizeAccountName = (name: string): string => {
   return (name || "").replace(/^\d+[_.-]?\s*/, '');
 };
 
-const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => 
-  headers.find(h => {
+const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => {
+  // 먼저 정확한 매칭 시도 (공백 제거 후)
+  for (const header of headers) {
+    const cleanedHeader = (header || "").trim().toLowerCase().replace(/\s/g, '');
+    for (const kw of keywords) {
+      const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
+      // 정확한 매칭 우선
+      if (cleanedHeader === cleanedKw) {
+        return header;
+      }
+    }
+  }
+  // 정확한 매칭이 없으면 포함 관계로 검색
+  return headers.find(h => {
     const cleanedHeader = (h || "").toLowerCase().replace(/\s/g, '').replace(/^\d+[_.-]?/, '');
     return keywords.some(kw => {
       const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
       return cleanedHeader.includes(cleanedKw);
     });
   });
+};
 
 const parseDate = (value: any): Date | null => {
   if (value instanceof Date && !isNaN(value.getTime())) {
@@ -218,8 +231,8 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
     });
   }
 
-  // 예금계정/차입금계정의 계좌번호 마스킹
-  const accountNameHeader = robustFindHeader(orderedHeaders, ['계정과목', '계정', 'account', '계정명']);
+  // 예금계정/차입금계정의 계좌번호 마스킹 ('계정명'을 우선순위로)
+  const accountNameHeader = robustFindHeader(orderedHeaders, ['계정명', '계정과목', '계정', 'account']);
   const maskedData = maskAccountNumbersInRows(data, accountNameHeader);
 
   return { data: maskedData, headers, orderedHeaders };
@@ -323,6 +336,9 @@ const AdvancedLedgerAnalysis = () => {
   const [previousWorkbook, setPreviousWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [accountNames, setAccountNames] = useState<string[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('');
+  // 시트가 하나만 있고 헤더에 계정명이 있는 경우를 추적
+  const [isSingleSheetWithAccountHeader, setIsSingleSheetWithAccountHeader] = useState<boolean>(false);
+  const [accountNameHeader, setAccountNameHeader] = useState<string | undefined>(undefined);
   
   // Financial Statement states
   const [financialStatementWorkbook, setFinancialStatementWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -413,6 +429,61 @@ const AdvancedLedgerAnalysis = () => {
           return;
         }
 
+        // 시트가 하나만 있고 헤더에 계정명이 있는 경우 처리
+        if (allSheetNames.length === 1) {
+          const firstSheet = loadedWorkbook.Sheets[allSheetNames[0]];
+          const { data: sheetData, orderedHeaders } = getDataFromSheet(firstSheet);
+          
+          // 계정명 헤더 찾기 ('계정명'을 우선순위로)
+          const foundAccountNameHeader = robustFindHeader(orderedHeaders, ['계정명', '계정과목', '계정', 'account']);
+          
+          if (foundAccountNameHeader && sheetData.length > 0) {
+            // 헤더에 계정명이 있고 데이터가 있는 경우, 고유한 계정명 추출
+            const uniqueAccountNames = new Set<string>();
+            sheetData.forEach(row => {
+              const accountName = row[foundAccountNameHeader];
+              if (accountName && typeof accountName === 'string' && accountName.trim() !== '') {
+                // 합계행, 헤더 중복 등 제외
+                const trimmed = accountName.trim();
+                const excludePatterns = ['월계', '누계', '합계', '총합계', foundAccountNameHeader];
+                const shouldExclude = excludePatterns.some(pattern => 
+                  trimmed.includes(pattern) || trimmed === pattern
+                );
+                if (!shouldExclude) {
+                  uniqueAccountNames.add(trimmed);
+                }
+              }
+            });
+            
+            // 고유한 계정명이 2개 이상인 경우에만 헤더의 계정명 사용
+            if (uniqueAccountNames.size >= 2) {
+              const accountNamesArray = Array.from(uniqueAccountNames).sort();
+              setAccountNames(accountNamesArray);
+              setSelectedAccount(accountNamesArray[0]);
+              setIsSingleSheetWithAccountHeader(true);
+              setAccountNameHeader(foundAccountNameHeader);
+              
+              toast({
+                title: '성공',
+                description: `1개 시트에서 ${accountNamesArray.length}개의 계정을 찾았습니다.`,
+              });
+              
+              // 당기 업로드 완료 후 전기 업로드 여부 물어보기
+              console.log('당기 파일 업로드 완료! Dialog를 표시합니다.');
+              setTimeout(() => {
+                setShowPreviousDialog(true);
+                console.log('showPreviousDialog가 true로 설정되었습니다.');
+              }, 100);
+              return;
+            }
+          }
+        }
+        
+        // 기존 로직으로 돌아가는 경우 상태 초기화
+        setIsSingleSheetWithAccountHeader(false);
+        setAccountNameHeader(undefined);
+
+        // 기존 로직: 시트별로 계정명이 있는 경우
         setAccountNames(allSheetNames);
         setSelectedAccount(allSheetNames[0]);
         
@@ -803,7 +874,46 @@ const AdvancedLedgerAnalysis = () => {
 
   const currentAccountData = useMemo(() => {
     if (!workbook || !selectedAccount) return [];
+    
+    // 시트가 하나만 있고 헤더에 계정명이 있는 경우
+    if (isSingleSheetWithAccountHeader && accountNameHeader && workbook.SheetNames.length === 1) {
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const { data } = getDataFromSheet(worksheet);
+      
+      // 선택된 계정명과 일치하는 행만 필터링
+      const filteredByAccount = data.filter(row => {
+        const rowAccountName = row[accountNameHeader];
+        if (!rowAccountName) return false;
+        const trimmed = String(rowAccountName).trim();
+        return trimmed === selectedAccount;
+      });
+      
+      // 추가 필터링: 월계/누계 행 제거 (안전장치)
+      const filteredData = filteredByAccount.filter(row => {
+        const isMonthlyOrCumulative = Object.values(row).some(val => {
+          if (val === null || val === undefined) return false;
+          const str = String(val).trim();
+          const normalized = str.replace(/\s/g, '');
+          return normalized.includes('월계') || 
+                 normalized.includes('누계') ||
+                 normalized.includes('[월계]') || 
+                 normalized.includes('[누계]') ||
+                 normalized === '월계' ||
+                 normalized === '누계' ||
+                 str.includes('[ 월계 ]') ||
+                 str.includes('[ 누계 ]') ||
+                 str.includes('[월 계]') ||
+                 str.includes('[누 계]');
+        });
+        return !isMonthlyOrCumulative;
+      });
+      
+      return filteredData;
+    }
+    
+    // 기존 로직: 시트별로 계정명이 있는 경우
     const worksheet = workbook.Sheets[selectedAccount];
+    if (!worksheet) return [];
     const { data } = getDataFromSheet(worksheet);
     
     // 추가 필터링: 월계/누계 행 제거 (안전장치)
@@ -827,7 +937,7 @@ const AdvancedLedgerAnalysis = () => {
     });
     
     return filteredData;
-  }, [workbook, selectedAccount]);
+  }, [workbook, selectedAccount, isSingleSheetWithAccountHeader, accountNameHeader]);
 
   const amountColumns = useMemo(() => {
     if (currentAccountData.length === 0) return [];

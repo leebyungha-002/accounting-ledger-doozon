@@ -30,14 +30,27 @@ const cleanAmount = (val: any): number => {
   return typeof val === 'number' ? val : 0;
 };
 
-const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => 
-  headers.find(h => {
+const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => {
+  // 먼저 정확한 매칭 시도 (공백 제거 후)
+  for (const header of headers) {
+    const cleanedHeader = (header || "").trim().toLowerCase().replace(/\s/g, '');
+    for (const kw of keywords) {
+      const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
+      // 정확한 매칭 우선
+      if (cleanedHeader === cleanedKw) {
+        return header;
+      }
+    }
+  }
+  // 정확한 매칭이 없으면 포함 관계로 검색
+  return headers.find(h => {
     const cleanedHeader = (h || "").toLowerCase().replace(/\s/g, '').replace(/^\d+[_.-]?/, '');
     return keywords.some(kw => {
       const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
       return cleanedHeader.includes(cleanedKw);
     });
   });
+};
 
 const parseDate = (value: any): Date | null => {
   if (value instanceof Date && !isNaN(value.getTime())) {
@@ -204,8 +217,8 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
     });
   }
 
-  // 예금계정/차입금계정의 계좌번호 마스킹
-  const accountNameHeader = robustFindHeader(orderedHeaders, ['계정과목', '계정', 'account', '계정명']);
+  // 예금계정/차입금계정의 계좌번호 마스킹 ('계정명'을 우선순위로)
+  const accountNameHeader = robustFindHeader(orderedHeaders, ['계정명', '계정과목', '계정', 'account']);
   const maskedData = maskAccountNumbersInRows(data, accountNameHeader);
 
   const headers = maskedData.length > 0 ? Object.keys(maskedData[0]) : [];

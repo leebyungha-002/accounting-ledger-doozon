@@ -1,6 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ========================================
+echo   계정병원장 및 분개장 분석 시스템
 echo   개발 서버 시작 중...
 echo ========================================
 echo.
@@ -41,6 +42,11 @@ echo.
 echo ========================================
 echo   서버가 시작되면 브라우저에서
 echo   http://localhost:8081/analysis 를 자동으로 열어줍니다
+echo.
+echo   주요 기능:
+echo   - 계정병원장 분석
+echo   - 분개장 분석
+echo   - AI 심층 분석
 echo ========================================
 echo.
 echo 서버를 종료하려면 Ctrl+C를 누르세요.
@@ -48,7 +54,7 @@ echo.
 
 REM npm run dev를 별도 PowerShell 창에서 시작
 echo 새 창에서 개발 서버를 시작합니다...
-start "개발 서버" powershell -NoExit -Command "cd '%~dp0'; npm run dev"
+start "계정병원장-분개장 개발 서버" powershell -NoExit -Command "cd '%~dp0'; npm run dev"
 
 REM 서버가 시작될 때까지 대기 (20초로 증가)
 echo.
@@ -67,9 +73,8 @@ echo.
 echo ========================================
 echo   브라우저가 열렸습니다!
 echo   서버는 별도 창에서 실행 중입니다.
-echo   서버를 종료하려면 "개발 서버" 창에서 Ctrl+C를 누르세요
+echo   서버를 종료하려면 "계정병원장-분개장 개발 서버" 창에서 Ctrl+C를 누르세요
 echo ========================================
 echo.
 echo 이 창은 5초 후 자동으로 닫힙니다...
 timeout /t 5 /nobreak >nul
-

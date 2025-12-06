@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, TrendingUp, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, TrendingUp, Loader2, Sparkles, Download } from 'lucide-react';
 import { analyzeWithFlash, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { useToast } from '@/hooks/use-toast';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, LabelProps } from 'recharts';
@@ -52,6 +52,7 @@ export const FinancialStatementAnalysis: React.FC<FinancialStatementAnalysisProp
   const [analyzingAccount, setAnalyzingAccount] = useState<string | null>(null); // 분석 중인 계정
   const [analysisResults, setAnalysisResults] = useState<Record<string, string>>({}); // 분석 결과 저장
   const [costEstimates, setCostEstimates] = useState<Record<string, { tokens: number; cost: number }>>({}); // 요금 추정
+  const ratiosRef = useRef<HTMLDivElement>(null); // 재무비율 섹션 참조
 
   // 시트명으로 재무상태표와 손익계산서 찾기
   const balanceSheetSheet = useMemo(() => {
@@ -702,6 +703,231 @@ ${sampledPrevious.slice(0, 10).map((row, idx) =>
     }
   };
 
+  // 재무비율 Excel 다운로드 함수
+  const handleDownloadRatiosExcel = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // 안정성 비율
+      if (financialRatios.안정성.length > 0) {
+        const stabilityData = financialRatios.안정성.map(ratio => ({
+          '비율명': ratio.name,
+          '값': ratio.value,
+          '단위': '%',
+          '이상값': ratio.ideal ? ratio.ideal : '-',
+        }));
+        const ws1 = XLSX.utils.json_to_sheet(stabilityData);
+        ws1['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 15 }];
+        XLSX.utils.book_append_sheet(wb, ws1, '안정성비율');
+      }
+      
+      // 수익성 비율
+      if (financialRatios.수익성.length > 0) {
+        const profitabilityData = financialRatios.수익성.map(ratio => ({
+          '비율명': ratio.name,
+          '값': ratio.value,
+          '단위': '%',
+          '이상값': ratio.ideal ? ratio.ideal : '-',
+        }));
+        const ws2 = XLSX.utils.json_to_sheet(profitabilityData);
+        ws2['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 15 }];
+        XLSX.utils.book_append_sheet(wb, ws2, '수익성비율');
+      }
+      
+      // 활동성 비율
+      if (financialRatios.활동성.length > 0) {
+        const activityData = financialRatios.활동성.map(ratio => ({
+          '비율명': ratio.name,
+          '값': ratio.value,
+          '단위': '회',
+          '이상값': ratio.ideal ? ratio.ideal : '-',
+        }));
+        const ws3 = XLSX.utils.json_to_sheet(activityData);
+        ws3['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 15 }];
+        XLSX.utils.book_append_sheet(wb, ws3, '활동성비율');
+      }
+      
+      if (wb.SheetNames.length === 0) {
+        toast({
+          title: '오류',
+          description: '다운로드할 재무비율 데이터가 없습니다.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      const dateStr = new Date().toISOString().split('T')[0];
+      const fileName = `재무비율_${dateStr}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      toast({
+        title: '다운로드 완료',
+        description: '엑셀 파일로 저장했습니다.',
+      });
+    } catch (error: any) {
+      toast({
+        title: '오류',
+        description: `다운로드 중 오류가 발생했습니다: ${error.message}`,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // 재무비율 PDF 다운로드 함수
+  const handleDownloadRatiosPDF = async () => {
+    if (!ratiosRef.current) {
+      toast({
+        title: '오류',
+        description: '재무비율 데이터를 찾을 수 없습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const loadingToast = toast({
+      title: 'PDF 생성 중',
+      description: '재무비율표를 PDF로 변환하는 중입니다. 잠시만 기다려주세요...',
+    });
+
+    try {
+      // html2canvas와 jsPDF를 동적으로 import
+      let html2canvas, jsPDF;
+      try {
+        html2canvas = (await import('html2canvas')).default;
+        const jspdfModule = await import('jspdf');
+        jsPDF = jspdfModule.jsPDF;
+        
+        if (!jsPDF || typeof jsPDF !== 'function') {
+          throw new Error('jsPDF를 찾을 수 없습니다.');
+        }
+      } catch (importError: any) {
+        toast({
+          title: '라이브러리 오류',
+          description: `PDF 생성 라이브러리를 불러오지 못했습니다: ${importError.message}`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // 한글 폰트 로드 대기
+      const loadFont = (fontFamily: string) => {
+        return new Promise<void>((resolve) => {
+          if (document.fonts.check(`16px "${fontFamily}"`)) {
+            resolve();
+            return;
+          }
+          document.fonts.load(`16px "${fontFamily}"`).then(() => resolve()).catch(() => resolve());
+        });
+      };
+      
+      await Promise.all([
+        loadFont('Noto Sans KR'),
+        loadFont('Apple SD Gothic Neo'),
+        loadFont('Malgun Gothic'),
+        loadFont('맑은 고딕')
+      ]);
+      
+      if (document.fonts && document.fonts.ready) {
+        await document.fonts.ready;
+      }
+      
+      // 렌더링 대기
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // 재무비율 섹션을 캔버스로 변환
+      const canvas = await html2canvas(ratiosRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('landscape', 'mm', 'a4');
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const imgX = (pdfWidth - imgWidth * ratio) / 2;
+      const imgY = 10;
+      
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+      
+      const dateStr = new Date().toISOString().split('T')[0];
+      pdf.save(`재무비율_${dateStr}.pdf`);
+      
+      toast({
+        title: '다운로드 완료',
+        description: 'PDF 파일로 저장했습니다.',
+      });
+    } catch (error: any) {
+      toast({
+        title: '오류',
+        description: `PDF 생성 중 오류가 발생했습니다: ${error.message}`,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Excel 다운로드 함수
+  const handleDownloadExcel = (data: FinancialStatementRow[], sheetName: string) => {
+    if (data.length === 0) {
+      toast({
+        title: '오류',
+        description: '다운로드할 데이터가 없습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // Excel 데이터 준비
+      const exportData = data.map(row => ({
+        '과목': row.과목,
+        '당기금액': row.당기금액,
+        '전기금액': row.전기금액,
+        '증감금액': row.증감금액,
+        '증감율(%)': row.증감율,
+        '유의적변동': row.유의적변동 ? 'Y' : 'N',
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      
+      // 컬럼 너비 설정
+      ws['!cols'] = [
+        { wch: 30 }, // 과목
+        { wch: 15 }, // 당기금액
+        { wch: 15 }, // 전기금액
+        { wch: 15 }, // 증감금액
+        { wch: 12 }, // 증감율
+        { wch: 12 }, // 유의적변동
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      
+      // 파일명 생성
+      const dateStr = new Date().toISOString().split('T')[0];
+      const fileName = `재무제표_증감분석_${sheetName}_${dateStr}.xlsx`;
+      
+      XLSX.writeFile(wb, fileName);
+      
+      toast({
+        title: '다운로드 완료',
+        description: '엑셀 파일로 저장했습니다.',
+      });
+    } catch (error: any) {
+      toast({
+        title: '오류',
+        description: `다운로드 중 오류가 발생했습니다: ${error.message}`,
+        variant: 'destructive',
+      });
+    }
+  };
+
   // AI 분석 함수
   const handleAnalyzeAccount = async (accountName: string, changeAmount: number, isIncomeStatement: boolean = false) => {
     if (!ledgerWorkbook || !getDataFromSheet) {
@@ -945,10 +1171,21 @@ ${sampledPrevious.slice(0, 10).map((row, idx) =>
       {selectedView === 'balance' && balanceSheetData.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>재무상태표 증감 분석</CardTitle>
-            <CardDescription>
-              재무상태표 계정별 당기/전기 금액, 증감금액, 증감율 및 유의적 변동 여부를 표시합니다.
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>재무상태표 증감 분석</CardTitle>
+                <CardDescription>
+                  재무상태표 계정별 당기/전기 금액, 증감금액, 증감율 및 유의적 변동 여부를 표시합니다.
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => handleDownloadExcel(balanceSheetData, '재무상태표')}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                엑셀 다운로드
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -1114,10 +1351,21 @@ ${sampledPrevious.slice(0, 10).map((row, idx) =>
       {selectedView === 'income' && incomeStatementData.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>손익계산서 증감 분석</CardTitle>
-            <CardDescription>
-              손익계산서 계정별 당기/전기 금액, 증감금액, 증감율 및 유의적 변동 여부를 표시합니다.
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>손익계산서 증감 분석</CardTitle>
+                <CardDescription>
+                  손익계산서 계정별 당기/전기 금액, 증감금액, 증감율 및 유의적 변동 여부를 표시합니다.
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => handleDownloadExcel(incomeStatementData, '손익계산서')}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                엑셀 다운로드
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -1305,7 +1553,36 @@ ${sampledPrevious.slice(0, 10).map((row, idx) =>
 
       {/* 재무비율 분석 */}
       {selectedView === 'ratios' && (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>재무비율 분석</CardTitle>
+                <CardDescription>
+                  안정성, 수익성, 활동성 비율을 분석합니다.
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadRatiosExcel}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Excel 다운로드
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadRatiosPDF}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  PDF 다운로드
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+        <div ref={ratiosRef} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* 안정성 비율 */}
         <Card>
           <CardHeader>
@@ -1410,6 +1687,7 @@ ${sampledPrevious.slice(0, 10).map((row, idx) =>
             </div>
           </CardContent>
         </Card>
+        </div>
       </div>
       )}
     </div>

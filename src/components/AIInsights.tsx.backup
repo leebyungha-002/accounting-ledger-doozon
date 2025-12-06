@@ -208,7 +208,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
   const generalDrilldownRef = useRef<HTMLDivElement>(null);
   const generalTypeDrilldownRef = useRef<HTMLDivElement>(null);
   const holidayDrilldownRef = useRef<HTMLDivElement>(null);
-  const counterDrilldownRef = useRef<HTMLDivElement>(null);
   
   // 드릴다운 상태 변경 추적 및 자동 스크롤
   useEffect(() => {
@@ -236,13 +235,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
         console.log('📜 공휴일 드릴다운으로 스크롤');
         holidayDrilldownRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 300);
-    } else if (counterDrilldownAccount && counterDrilldownRef.current) {
-      setTimeout(() => {
-        console.log('📜 상대계정 드릴다운으로 스크롤');
-        counterDrilldownRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 300);
     }
-  }, [generalDrilldownAccount, generalDrilldownType, accountDrilldownType, holidayDrilldown, counterDrilldownAccount, activeCard]);
+  }, [generalDrilldownAccount, generalDrilldownType, accountDrilldownType, holidayDrilldown, activeCard]);
 
   // 월별 트렌드 분석 데이터
   const monthlyTrendData = useMemo(() => {
@@ -790,13 +784,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
   };
 
   const getCounterDrilldownData = () => {
-    if (!counterResult || !counterDrilldownAccount) {
-      console.log('getCounterDrilldownData: 조건 불만족', { 
-        hasCounterResult: !!counterResult, 
-        counterDrilldownAccount 
-      });
-      return [];
-    }
+    if (!counterResult || !counterDrilldownAccount) return [];
     
     // 타겟 계정명과 차변/대변으로 필터링된 전표번호들 찾기
     const targetEntryNumbers = new Set<string>();
@@ -805,8 +793,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
         targetEntryNumbers.add(String(entry.entryNumber));
       }
     });
-    
-    console.log('getCounterDrilldownData: 전표번호 수', targetEntryNumbers.size);
     
     // 각 전표번호에서 상대계정 항목들을 찾기 (타겟 항목 + 상대계정 항목)
     const drilldownEntries: JournalEntry[] = [];
@@ -839,22 +825,14 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
       }
     });
     
-    console.log('getCounterDrilldownData: 결과 항목 수', drilldownEntries.length);
     return drilldownEntries;
   };
 
   // 상대계정 상세내역의 월별 합계 계산
   const getMonthlyTotalsForCounterAccount = () => {
-    if (!counterResult || !counterDrilldownAccount) {
-      console.log('getMonthlyTotalsForCounterAccount: 조건 불만족', {
-        hasCounterResult: !!counterResult,
-        counterDrilldownAccount
-      });
-      return [];
-    }
+    if (!counterResult || !counterDrilldownAccount) return [];
     
     const drilldownData = getCounterDrilldownData();
-    console.log('getMonthlyTotalsForCounterAccount: 데이터 수', drilldownData.length);
     const oppositeSide = counterResult.type === '차변' ? '대변' : '차변';
     
     // 월별로 그룹핑
@@ -1356,13 +1334,9 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
 
   // 일반사항분석 계정별 상세내역의 월별 합계 계산
   const getMonthlyTotalsForGeneralAccount = () => {
-    if (!generalDrilldownAccount) {
-      console.log('getMonthlyTotalsForGeneralAccount: 계정 없음');
-      return [];
-    }
+    if (!generalDrilldownAccount) return [];
     
     const drilldownData = getAccountDrilldownData();
-    console.log('getMonthlyTotalsForGeneralAccount: 데이터 수', drilldownData.length);
     
     // 월별로 그룹핑
     const monthlyMap = new Map<string, { debit: number; credit: number; count: number; label: string }>();
@@ -2576,13 +2550,10 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                     className="font-medium cursor-pointer hover:underline"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      console.log('=== 계정명 클릭 ===');
-                                      console.log('계정명:', stat.name);
+                                      console.log('계정명 클릭:', { account: stat.name });
                                       setGeneralDrilldownAccount(stat.name);
                                       setAccountDrilldownType(null);
-                                      // 계정명 클릭 시에도 월별 합계 표시 (기본값으로 true 설정)
-                                      setGeneralDrilldownShowMonthly(true);
-                                      console.log('✅ generalDrilldownShowMonthly를 true로 설정했습니다.');
+                                      setGeneralDrilldownShowMonthly(false);
                                     }}
                                   >
                                     {stat.name}
@@ -2592,12 +2563,10 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                 className="text-right cursor-pointer hover:underline hover:text-blue-600 transition-colors"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  console.log('=== 차변 클릭 ===');
-                                  console.log('계정명:', stat.name, '차변:', stat.debit);
+                                  console.log('차변 클릭:', { account: stat.name, debit: stat.debit });
                                       setGeneralDrilldownAccount(stat.name);
                                       setAccountDrilldownType('debit');
                                       setGeneralDrilldownShowMonthly(true);
-                                      console.log('✅ generalDrilldownShowMonthly를 true로 설정했습니다.');
                                 }}
                               >
                                 {stat.debit.toLocaleString()}
@@ -2606,12 +2575,10 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                 className="text-right cursor-pointer hover:underline hover:text-blue-600 transition-colors"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  console.log('=== 대변 클릭 ===');
-                                  console.log('계정명:', stat.name, '대변:', stat.credit);
+                                  console.log('대변 클릭:', { account: stat.name, credit: stat.credit });
                                   setGeneralDrilldownAccount(stat.name);
                                   setAccountDrilldownType('credit');
                                   setGeneralDrilldownShowMonthly(true);
-                                  console.log('✅ generalDrilldownShowMonthly를 true로 설정했습니다.');
                                 }}
                               >
                                 {stat.credit.toLocaleString()}
@@ -2632,24 +2599,9 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                 {/* 계정별 상세 내역 표시 (드릴다운) */}
                 {generalDrilldownAccount && (
                   <div className="mt-6 space-y-2">
-                    {/* 월별 합계 표시 - 상세내역 위에 별도 표시 */}
-                    {(() => {
-                      const monthlyData = getMonthlyTotalsForGeneralAccount();
-                      const shouldShow = generalDrilldownShowMonthly;
-                      console.log('=== 월별합계 표시 조건 확인 ===');
-                      console.log('generalDrilldownShowMonthly:', generalDrilldownShowMonthly);
-                      console.log('generalDrilldownAccount:', generalDrilldownAccount);
-                      console.log('accountDrilldownType:', accountDrilldownType);
-                      console.log('monthlyDataLength:', monthlyData.length);
-                      console.log('shouldShow:', shouldShow);
-                      if (!shouldShow) {
-                        console.warn('⚠️ 월별합계가 표시되지 않습니다! generalDrilldownShowMonthly가 false입니다!');
-                      } else {
-                        console.log('✅ 월별합계가 표시됩니다!');
-                      }
-                      return shouldShow;
-                    })() && (
-                      <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 mb-4">
+                    {/* 월별 합계 표시 */}
+                    {generalDrilldownShowMonthly && (
+                      <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
                         <CardHeader className="pb-3">
                           <div className="flex items-center justify-between">
                             <CardTitle className="text-sm font-semibold text-blue-900 dark:text-blue-100">
@@ -2691,35 +2643,29 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {(() => {
-                                  const monthlyData = getMonthlyTotalsForGeneralAccount();
-                                  console.log('월별 합계 데이터:', monthlyData);
-                                  if (monthlyData.length > 0) {
-                                    return monthlyData.map((month, idx) => (
-                                      <TableRow key={idx}>
-                                        <TableCell className="font-medium">{month.label}</TableCell>
-                                        <TableCell className="text-right">
-                                          {month.debit > 0 ? `₩${month.debit.toLocaleString()}` : '-'}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {month.credit > 0 ? `₩${month.credit.toLocaleString()}` : '-'}
-                                        </TableCell>
-                                        <TableCell className="text-right font-semibold text-blue-600">
-                                          ₩{month.total.toLocaleString()}
-                                        </TableCell>
-                                        <TableCell className="text-center">{month.count}건</TableCell>
-                                      </TableRow>
-                                    ));
-                                  } else {
-                                    return (
-                                      <TableRow>
-                                        <TableCell colSpan={5} className="text-center text-muted-foreground">
-                                          월별 데이터가 없습니다.
-                                        </TableCell>
-                                      </TableRow>
-                                    );
-                                  }
-                                })()}
+                                {getMonthlyTotalsForGeneralAccount().length > 0 ? (
+                                  getMonthlyTotalsForGeneralAccount().map((month, idx) => (
+                                    <TableRow key={idx}>
+                                      <TableCell className="font-medium">{month.label}</TableCell>
+                                      <TableCell className="text-right">
+                                        {month.debit > 0 ? `₩${month.debit.toLocaleString()}` : '-'}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {month.credit > 0 ? `₩${month.credit.toLocaleString()}` : '-'}
+                                      </TableCell>
+                                      <TableCell className="text-right font-semibold text-blue-600">
+                                        ₩{month.total.toLocaleString()}
+                                      </TableCell>
+                                      <TableCell className="text-center">{month.count}건</TableCell>
+                                    </TableRow>
+                                  ))
+                                ) : (
+                                  <TableRow>
+                                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                                      월별 데이터가 없습니다.
+                                    </TableCell>
+                                  </TableRow>
+                                )}
                               </TableBody>
                             </Table>
                           </div>
@@ -2836,22 +2782,9 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                 {/* 차변/대변 합계 상세 내역 표시 (드릴다운) */}
                 {generalDrilldownType && (
                   <div className="mt-6 space-y-2">
-                    {/* 월별 합계 표시 - 상세내역 위에 별도 표시 */}
-                    {(() => {
-                      const monthlyData = getMonthlyTotalsForDebitCredit();
-                      const shouldShow = generalDrilldownShowMonthly;
-                      console.log('🟢 [차변/대변 월별합계] 표시 조건 확인:', {
-                        generalDrilldownShowMonthly,
-                        generalDrilldownType,
-                        monthlyDataLength: monthlyData.length,
-                        shouldShow
-                      });
-                      if (!shouldShow) {
-                        console.warn('⚠️ [차변/대변 월별합계] 표시되지 않음 - generalDrilldownShowMonthly가 false입니다!');
-                      }
-                      return shouldShow;
-                    })() && (
-                      <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 mb-4">
+                    {/* 월별 합계 표시 */}
+                    {generalDrilldownShowMonthly && (
+                      <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
                         <CardHeader className="pb-3">
                           <div className="flex items-center justify-between">
                             <CardTitle className="text-sm font-semibold text-blue-900 dark:text-blue-100">
@@ -2892,35 +2825,29 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {(() => {
-                                  const monthlyData = getMonthlyTotalsForDebitCredit();
-                                  console.log('차변/대변 월별 합계 데이터:', monthlyData);
-                                  if (monthlyData.length > 0) {
-                                    return monthlyData.map((month, idx) => (
-                                      <TableRow key={idx}>
-                                        <TableCell className="font-medium">{month.label}</TableCell>
-                                        <TableCell className="text-right">
-                                          {month.debit > 0 ? `₩${month.debit.toLocaleString()}` : '-'}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {month.credit > 0 ? `₩${month.credit.toLocaleString()}` : '-'}
-                                        </TableCell>
-                                        <TableCell className="text-right font-semibold text-blue-600">
-                                          ₩{month.total.toLocaleString()}
-                                        </TableCell>
-                                        <TableCell className="text-center">{month.count}건</TableCell>
-                                      </TableRow>
-                                    ));
-                                  } else {
-                                    return (
-                                      <TableRow>
-                                        <TableCell colSpan={5} className="text-center text-muted-foreground">
-                                          월별 데이터가 없습니다.
-                                        </TableCell>
-                                      </TableRow>
-                                    );
-                                  }
-                                })()}
+                                {getMonthlyTotalsForDebitCredit().length > 0 ? (
+                                  getMonthlyTotalsForDebitCredit().map((month, idx) => (
+                                    <TableRow key={idx}>
+                                      <TableCell className="font-medium">{month.label}</TableCell>
+                                      <TableCell className="text-right">
+                                        {month.debit > 0 ? `₩${month.debit.toLocaleString()}` : '-'}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {month.credit > 0 ? `₩${month.credit.toLocaleString()}` : '-'}
+                                      </TableCell>
+                                      <TableCell className="text-right font-semibold text-blue-600">
+                                        ₩{month.total.toLocaleString()}
+                                      </TableCell>
+                                      <TableCell className="text-center">{month.count}건</TableCell>
+                                    </TableRow>
+                                  ))
+                                ) : (
+                                  <TableRow>
+                                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                                      월별 데이터가 없습니다.
+                                    </TableCell>
+                                  </TableRow>
+                                )}
                               </TableBody>
                             </Table>
                           </div>
@@ -3011,8 +2938,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                   </Card>
                   </div>
                 )}
-              </div>
-            )}
 
             {activeCard === 'holiday' && (
               <div className="space-y-2">
@@ -3415,26 +3340,18 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                           <TableCell 
                                             className="font-medium text-slate-700 whitespace-nowrap cursor-pointer hover:underline"
                                             onClick={() => {
-                                              console.log('=== 상대계정명 클릭 ===');
-                                              console.log('상대계정명:', detail.name);
                                               setCounterDrilldownAccount(detail.name);
-                                              // 계정명 클릭 시에도 월별 합계 표시
-                                              setCounterDrilldownAmountClicked(true);
+                                              setCounterDrilldownAmountClicked(false);
                                               setSelectedVoucherNumber(null);
-                                              console.log('✅ counterDrilldownAmountClicked를 true로 설정했습니다.');
                                             }}
                                           >
                                             {detail.name}
                                           </TableCell>
                                           <TableCell 
                                             onClick={() => {
-                                              console.log('=== 상대계정 건수 클릭 ===');
-                                              console.log('상대계정명:', detail.name, '건수:', detail.count);
                                               setCounterDrilldownAccount(detail.name);
-                                              // 건수 클릭 시에도 월별 합계 표시
-                                              setCounterDrilldownAmountClicked(true);
+                                              setCounterDrilldownAmountClicked(false);
                                               setSelectedVoucherNumber(null);
-                                              console.log('✅ counterDrilldownAmountClicked를 true로 설정했습니다.');
                                             }}
                                             className="text-center font-bold text-blue-600 cursor-pointer hover:underline hover:text-blue-800 decoration-blue-400 underline-offset-2 whitespace-nowrap"
                                           >
@@ -3443,11 +3360,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                           <TableCell 
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              console.log('=== 상대계정 금액 클릭 ===');
-                                              console.log('상대계정명:', detail.name, '금액:', detail.amount);
                                               setCounterDrilldownAccount(detail.name);
                                               setCounterDrilldownAmountClicked(true);
-                                              console.log('✅ counterDrilldownAmountClicked를 true로 설정했습니다.');
                                             }}
                                             className="text-right font-semibold text-green-600 cursor-pointer hover:underline hover:text-green-800 whitespace-nowrap"
                                           >
@@ -3475,21 +3389,9 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                             {/* 상세 내역 표시 (드릴다운) */}
                             {counterDrilldownAccount && (
                               <div className="mt-3 space-y-2">
-                                {/* 월별 합계 표시 (금액 클릭 시) - 상세내역 위에 별도 표시 */}
-                                {(() => {
-                                  console.log('=== 상대계정 월별합계 표시 조건 확인 ===');
-                                  console.log('counterDrilldownAmountClicked:', counterDrilldownAmountClicked);
-                                  console.log('counterDrilldownAccount:', counterDrilldownAccount);
-                                  const monthlyData = getMonthlyTotalsForCounterAccount();
-                                  console.log('monthlyDataLength:', monthlyData.length);
-                                  if (!counterDrilldownAmountClicked) {
-                                    console.warn('⚠️ 상대계정 월별합계가 표시되지 않습니다! counterDrilldownAmountClicked가 false입니다!');
-                                  } else {
-                                    console.log('✅ 상대계정 월별합계가 표시됩니다!');
-                                  }
-                                  return counterDrilldownAmountClicked;
-                                })() && (
-                                  <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 mb-4">
+                                {/* 월별 합계 표시 (금액 클릭 시) */}
+                                {counterDrilldownAmountClicked && (
+                                  <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
                                     <CardHeader className="pb-3">
                                       <div className="flex items-center justify-between">
                                         <CardTitle className="text-sm font-semibold text-blue-900 dark:text-blue-100">
@@ -3560,42 +3462,36 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                   </Card>
                                 )}
                                 
-                                {/* 상세 내역 박스 */}
-                                <Card 
-                                  ref={counterDrilldownRef}
-                                  data-drilldown="true"
-                                  style={{ border: '2px solid #10b981', backgroundColor: '#f0fdf4' }}
-                                >
-                                  <CardHeader>
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => {
-                                            setCounterDrilldownAccount(null);
-                                            setCounterDrilldownAmountClicked(false);
-                                            setSelectedVoucherNumber(null);
-                                          }}
-                                          className="p-0 h-auto"
-                                        >
-                                          <ArrowLeft className="w-4 h-4 mr-1" />
-                                        </Button>
-                                        <h4 className="font-bold text-slate-800 text-lg">
-                                          상세 내역: {counterDrilldownAccount}
-                                        </h4>
-                                      </div>
-                                      <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        onClick={handleCounterDrilldownDownload}
-                                        className="flex items-center gap-1"
-                                      >
-                                        <Download className="w-3.5 h-3.5" />
-                                        상세 내역 엑셀 다운로드
-                                      </Button>
-                                    </div>
-                                  </CardHeader>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        setCounterDrilldownAccount(null);
+                                        setCounterDrilldownAmountClicked(false);
+                                        setSelectedVoucherNumber(null);
+                                      }}
+                                      className="p-0 h-auto"
+                                    >
+                                      <ArrowLeft className="w-4 h-4 mr-1" />
+                                    </Button>
+                                    <h4 className="font-bold text-slate-800 text-lg">
+                                      상세 내역: {counterDrilldownAccount}
+                                    </h4>
+                                  </div>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={handleCounterDrilldownDownload}
+                                    className="flex items-center gap-1"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                    상세 내역 엑셀 다운로드
+                                  </Button>
+                                </div>
+                                
+                                <Card>
                                   <CardContent className="pt-4">
                                     <div className="overflow-x-auto">
                                       <Table>
@@ -3612,14 +3508,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                          {(() => {
-                                            const data = getCounterDrilldownData();
-                                            console.log('상세내역 렌더링:', { 
-                                              counterDrilldownAccount, 
-                                              dataLength: data.length,
-                                              hasCounterResult: !!counterResult 
-                                            });
-                                            return data.length > 0 ? (
+                                          {getCounterDrilldownData().length > 0 ? (
                                             getCounterDrilldownData().map((entry, idx) => {
                                               // entry는 상대계정 항목
                                               // 대변 검색 시: 상대계정은 차변이므로 entry.debit 표시
@@ -3659,9 +3548,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                               <TableCell colSpan={8} className="text-center text-muted-foreground">
                                                 상세 내역이 없습니다.
                                               </TableCell>
-                                              </TableRow>
-                                            );
-                                          })()}
+                                            </TableRow>
+                                          )}
                                         </TableBody>
                                       </Table>
                                     </div>

@@ -755,7 +755,7 @@ export const convertLedgerRowsToJournalEntries = (
   };
 
   const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date']);
-  const accountNameHeader = robustFindHeader(headers, ['계정과목', '계정', 'account', 'accountname', '적요란']); // 적요란도 계정명으로 사용 가능
+  const accountNameHeader = robustFindHeader(headers, ['계정명', '계정과목', '계정', 'account', 'accountname', '적요란']); // '계정명'을 우선순위로, 적요란도 계정명으로 사용 가능
   const accountCodeHeader = robustFindHeader(headers, ['계정코드', '코드', 'accountcode', 'account_code', 'code']); // 계정코드 컬럼 (금액이 아님)
   const vendorHeader = robustFindHeader(headers, ['거래처', 'vendor', 'customer', '업체']);
   let debitHeader = robustFindHeader(headers, ['차변', 'debit', '차변금액']);
