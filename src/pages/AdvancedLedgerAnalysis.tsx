@@ -1194,7 +1194,47 @@ const AdvancedLedgerAnalysis = () => {
           <BenfordAnalysis 
             accountData={currentAccountData}
             accountName={selectedAccount}
-            amountColumns={amountColumns}
+            amountColumns={(() => {
+              // 벤포드 분석에서는 계정 유형과 관계없이 차변과 대변 모두 포함
+              if (currentAccountData.length === 0) return [];
+              const headers = Object.keys(currentAccountData[0] || {});
+              
+              // 차변/대변 헤더 찾기
+              const dateHeader = headers.find(h => 
+                h.includes('일자') || h.includes('날짜') || h.includes('date')
+              );
+              const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, currentAccountData, dateHeader);
+              
+              // 모든 숫자 컬럼을 포함 (차변, 대변 모두)
+              // 계정 유형에 따른 필터링 없이 모든 숫자 컬럼 포함
+              const filteredHeaders = headers.filter(h => {
+                // 일자, 날짜, 적요, 거래처 등은 제외
+                const cleanHeader = h.replace(/\s/g, '').toLowerCase();
+                if (cleanHeader.includes('일자') || cleanHeader.includes('날짜') || 
+                    cleanHeader.includes('date') || cleanHeader.includes('적요') ||
+                    cleanHeader.includes('거래처') || cleanHeader.includes('vendor') ||
+                    cleanHeader.includes('description') || cleanHeader.includes('내용') ||
+                    cleanHeader.includes('비고') || cleanHeader.includes('remark')) {
+                  return false;
+                }
+                // 숫자 컬럼만 포함 (차변, 대변 모두 포함)
+                return currentAccountData.some(row => 
+                  typeof row[h] === 'number' || 
+                  (typeof row[h] === 'string' && !isNaN(parseFloat(String(row[h]).replace(/,/g, ''))))
+                );
+              });
+              
+              // 차변/대변 헤더가 있으면 명시적으로 추가 (값이 없어도 포함)
+              const resultSet = new Set(filteredHeaders);
+              if (debitHeader && !resultSet.has(debitHeader)) {
+                resultSet.add(debitHeader);
+              }
+              if (creditHeader && !resultSet.has(creditHeader)) {
+                resultSet.add(creditHeader);
+              }
+              
+              return Array.from(resultSet);
+            })()}
           />
         </div>
       );

@@ -106,8 +106,8 @@ const checkDayType = (dateStr: string): 'weekday' | 'sat' | 'sun' | 'holiday' =>
 };
 
 // Helper to check if a date is the last day of the month
-const isLastDayOfMonth = (dateStr: string): boolean => {
-  const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr instanceof Date ? dateStr : new Date();
+const isLastDayOfMonth = (dateStr: string | Date): boolean => {
+  const date = typeof dateStr === 'string' ? new Date(dateStr) : (dateStr && typeof dateStr === 'object' && 'getTime' in dateStr) ? dateStr : new Date();
   if (isNaN(date.getTime())) return false;
   
   const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -1842,6 +1842,18 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
             const pdf = new jsPDF('p', 'mm', 'a4');
             let position = 10;
 
+            // 제목 추가
+            if (chartTitle) {
+              pdf.setFontSize(16);
+              pdf.setFont('helvetica', 'bold');
+              try {
+                pdf.text(chartTitle, 10, position);
+                position += 8; // 제목 아래 여백
+              } catch (titleError) {
+                console.warn('제목 추가 실패 (한글 폰트 미지원 가능):', titleError);
+              }
+            }
+
             // 이미지 추가
             pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
             heightLeft -= 297 - position - 10;
@@ -1899,6 +1911,15 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
         removeContainer: false,
         onclone: (clonedDoc, element) => {
           console.log('🔍 onclone 실행 - SVG 텍스트 처리 시작');
+          
+          // PDF 다운로드 버튼 숨기기
+          const downloadButtons = clonedDoc.querySelectorAll('button');
+          downloadButtons.forEach(btn => {
+            const btnElement = btn as HTMLElement;
+            if (btnElement.textContent?.includes('PDF') || btnElement.textContent?.includes('다운로드')) {
+              btnElement.style.display = 'none';
+            }
+          });
           
           // 모든 SVG 텍스트 요소 찾기
           const svgElements = clonedDoc.querySelectorAll('svg text, svg tspan');
@@ -1974,10 +1995,23 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
         return;
       }
 
-      let position = 10; // 제목 없이 바로 이미지 추가
-
-      // 제목은 이미지에 포함되므로 PDF에는 직접 텍스트 추가하지 않음
-      // (한글 폰트 지원 문제 방지)
+      // 제목 추가
+      let position = 10;
+      if (chartTitle) {
+        pdf.setFontSize(16);
+        pdf.setFont('helvetica', 'bold');
+        // 한글 제목을 텍스트로 추가 (간단한 방법)
+        // 한글이 깨질 수 있으므로 제목을 이미지로 변환하거나, 
+        // 제목이 포함된 영역을 함께 캡처하는 것이 더 나음
+        // 일단 제목 텍스트 추가 시도
+        try {
+          pdf.text(chartTitle, 10, position);
+          position += 8; // 제목 아래 여백
+        } catch (titleError) {
+          console.warn('제목 추가 실패 (한글 폰트 미지원 가능):', titleError);
+          // 제목 추가 실패해도 계속 진행
+        }
+      }
 
       // 이미지 추가
       try {
@@ -2302,7 +2336,10 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
 
       {/* Full Screen Modal */}
       <Dialog open={activeCard !== null} onOpenChange={(open) => !open && closeModal()}>
-        <DialogContent className="max-w-[80vw] max-h-[98vh] w-full h-full p-0 flex flex-col overflow-hidden" style={{ maxWidth: '80vw', width: '100%' }}>
+        <DialogContent 
+          className="max-w-[80vw] max-h-[98vh] w-full h-full p-0 flex flex-col overflow-hidden" 
+          style={{ maxWidth: '80vw', width: '100%' }}
+        >
           <DialogHeader className="px-3 py-2 border-b flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3387,7 +3424,28 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                               </Button>
                             </div>
                             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                              <div className="overflow-x-auto">
+                              <div 
+                                className="overflow-x-auto"
+                                onClick={(e) => {
+                                  // 스크롤바 클릭 시 이벤트 전파 방지
+                                  const target = e.target as HTMLElement;
+                                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                  const scrollbarWidth = 17;
+                                  // 오른쪽 끝 스크롤바 영역 클릭 감지
+                                  if (e.clientX >= rect.right - scrollbarWidth) {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                  }
+                                }}
+                                onMouseDown={(e) => {
+                                  // 스크롤바 드래그 시작 시 이벤트 전파 방지
+                                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                  const scrollbarWidth = 17;
+                                  if (e.clientX >= rect.right - scrollbarWidth) {
+                                    e.stopPropagation();
+                                  }
+                                }}
+                              >
                                 <Table>
                                   <TableHeader>
                                     <TableRow>
@@ -3397,7 +3455,12 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                         거래 건수
                                       </TableHead>
                                       <TableHead className="text-right min-w-[150px] whitespace-nowrap">금액</TableHead>
-                                      <TableHead className="text-right">비율</TableHead>
+                                      <TableHead className="text-right">
+                                        <div className="flex flex-col items-end">
+                                          <span>비율</span>
+                                          <span className="text-xs text-muted-foreground font-normal">(건수 기준)</span>
+                                        </div>
+                                      </TableHead>
                                       <TableHead className="w-full"></TableHead>
                                     </TableRow>
                                   </TableHeader>
@@ -3597,7 +3660,27 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                     </div>
                                   </CardHeader>
                                   <CardContent className="pt-4">
-                                    <div className="overflow-x-auto">
+                                    <div 
+                                      className="overflow-x-auto"
+                                      onClick={(e) => {
+                                        // 스크롤바 클릭 시 이벤트 전파 방지
+                                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                        const scrollbarWidth = 17;
+                                        // 오른쪽 끝 스크롤바 영역 클릭 감지
+                                        if (e.clientX >= rect.right - scrollbarWidth) {
+                                          e.stopPropagation();
+                                          e.preventDefault();
+                                        }
+                                      }}
+                                      onMouseDown={(e) => {
+                                        // 스크롤바 드래그 시작 시 이벤트 전파 방지
+                                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                        const scrollbarWidth = 17;
+                                        if (e.clientX >= rect.right - scrollbarWidth) {
+                                          e.stopPropagation();
+                                        }
+                                      }}
+                                    >
                                       <Table>
                                         <TableHeader>
                                           <TableRow>
@@ -4204,7 +4287,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                         </div>
 
                         {/* 월별 차변/대변 추이 차트 */}
-                        <Card>
+                        <Card ref={trendAmountChartRef}>
                           <CardHeader>
                             <div className="flex items-center justify-between">
                               <CardTitle>
@@ -4227,7 +4310,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                             </div>
                           </CardHeader>
                           <CardContent>
-                            <div ref={trendAmountChartRef}>
+                            <div>
                               <ResponsiveContainer width="100%" height={400}>
                                 <LineChart data={monthlyTrendData}>
                                   <CartesianGrid strokeDasharray="3 3" />
@@ -4244,7 +4327,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                         </Card>
 
                         {/* 월별 거래 건수 차트 */}
-                        <Card>
+                        <Card ref={trendCountChartRef}>
                           <CardHeader>
                             <div className="flex items-center justify-between">
                               <CardTitle>
@@ -4267,7 +4350,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                             </div>
                           </CardHeader>
                           <CardContent>
-                            <div ref={trendCountChartRef}>
+                            <div>
                               <ResponsiveContainer width="100%" height={300}>
                                 <BarChart data={monthlyTrendData}>
                                   <CartesianGrid strokeDasharray="3 3" />

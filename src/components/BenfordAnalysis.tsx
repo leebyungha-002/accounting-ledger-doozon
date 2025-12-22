@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { analyzeWithFlash, hasApiKey } from '@/lib/geminiClient';
 import { Download, Loader2, BarChart3, Calculator, Coins } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import html2canvas from 'html2canvas';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -43,6 +45,7 @@ export const BenfordAnalysis: React.FC<BenfordAnalysisProps> = ({
   const [isDetailModalOpen, setIsDetailModalOpen] = useState<boolean>(false);
   const [selectedDigit, setSelectedDigit] = useState<number | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartWrapperRef = useRef<HTMLDivElement>(null);
   const [linePoints, setLinePoints] = useState<string>('');
   const [totalCost, setTotalCost] = useState<number>(0);
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
@@ -252,47 +255,120 @@ ${results.map(r => `| ${r.digit} | ${r.actualCount.toLocaleString()} | ${r.actua
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!benfordResults) return;
 
-    const wb = XLSX.utils.book_new();
-    const wsData: (string | number)[][] = [
-      ['분석 계정과목:', accountName],
-      ['금액 기준열:', selectedColumn],
-      [],
-      ['벤포드 법칙 분석 결과'],
-      ['첫째 자리 수', '실제 건수', '실제 분포 (%)', '벤포드 분포 (%)', '차이 (%)']
-    ];
+    try {
+      // ExcelJS를 사용하여 워크북 생성
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('벤포드 분석');
 
-    benfordResults.forEach(res => {
-      wsData.push([
+      // 헤더 정보
+      worksheet.getCell('A1').value = '분석 계정과목:';
+      worksheet.getCell('B1').value = accountName;
+      worksheet.getCell('A2').value = '금액 기준열:';
+      worksheet.getCell('B2').value = selectedColumn;
+
+      // 데이터 테이블
+      worksheet.getCell('A4').value = '벤포드 법칙 분석 결과';
+      worksheet.getRow(5).values = ['첫째 자리 수', '실제 건수', '실제 분포 (%)', '벤포드 분포 (%)', '차이 (%)'];
+      worksheet.getRow(5).font = { bold: true };
+
+      benfordResults.forEach((res, idx) => {
+        const row = worksheet.getRow(6 + idx);
+        row.values = [
         res.digit,
         res.actualCount,
         res.actualPercent,
         res.benfordPercent,
         res.difference
-      ]);
-    });
-
-    if (aiInsight) {
-      wsData.push([]);
-      wsData.push(['AI 감사인 의견']);
-      const aiLines = aiInsight.split('\n');
-      aiLines.forEach(line => {
-        wsData.push([line || ' ']);
+        ];
+        // 차이가 5% 이상인 경우 빨간색으로 표시
+        if (Math.abs(res.difference) > 5) {
+          row.getCell(5).font = { color: { argb: 'FFFF0000' }, bold: true };
+        }
       });
-    }
 
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }];
+      // 차트를 이미지로 변환하여 엑셀에 삽입
+      if (chartWrapperRef.current) {
+        try {
+          const canvas = await html2canvas(chartWrapperRef.current, {
+            backgroundColor: '#ffffff',
+            scale: 2,
+            logging: false,
+            useCORS: true,
+          });
 
-    XLSX.utils.book_append_sheet(wb, ws, '벤포드 분석');
-    XLSX.writeFile(wb, `벤포드_분석_${accountName}.xlsx`);
+          // Canvas를 base64 이미지로 변환
+          const imageBase64 = canvas.toDataURL('image/png');
+          const imageId = workbook.addImage({
+            base64: imageBase64,
+            extension: 'png',
+          });
+
+          // 이미지를 삽입할 위치 계산 (데이터 테이블 아래)
+          const dataEndRow = 6 + benfordResults.length;
+          const imageStartRow = dataEndRow + 3;
+
+          // 이미지 삽입
+          worksheet.addImage(imageId, {
+            tl: { col: 0, row: imageStartRow },
+            ext: { width: 800, height: 400 },
+          });
+        } catch (imageError) {
+          console.warn('차트 이미지 변환 실패:', imageError);
+          // 이미지 변환 실패해도 계속 진행
+        }
+      }
+
+      // AI 의견 추가
+    if (aiInsight) {
+        const aiStartRow = benfordResults.length + 10;
+        worksheet.getCell(`A${aiStartRow}`).value = 'AI 감사인 의견';
+        worksheet.getCell(`A${aiStartRow}`).font = { bold: true };
+        
+      const aiLines = aiInsight.split('\n');
+        aiLines.forEach((line, idx) => {
+          const row = worksheet.getRow(aiStartRow + 1 + idx);
+          row.getCell(1).value = line || ' ';
+          // 셀 병합하여 전체 너비 사용
+          worksheet.mergeCells(`A${aiStartRow + 1 + idx}:E${aiStartRow + 1 + idx}`);
+        });
+      }
+
+      // 열 너비 설정
+      worksheet.columns = [
+        { width: 15 },
+        { width: 15 },
+        { width: 15 },
+        { width: 15 },
+        { width: 15 },
+      ];
+
+      // 파일 다운로드
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `벤포드_분석_${accountName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
 
     toast({
       title: '다운로드 완료',
-      description: '분석 결과를 엑셀 파일로 저장했습니다.',
-    });
+        description: '분석 결과와 그래프를 엑셀 파일로 저장했습니다.',
+      });
+    } catch (error: any) {
+      console.error('엑셀 다운로드 오류:', error);
+      toast({
+        title: '오류',
+        description: `다운로드 실패: ${error.message}`,
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleShowDetail = (digit: number) => {
@@ -390,7 +466,7 @@ ${results.map(r => `| ${r.digit} | ${r.actualCount.toLocaleString()} | ${r.actua
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Chart Visualization */}
-            <div className="space-y-4">
+            <div ref={chartWrapperRef} className="space-y-4">
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 bg-blue-500 rounded"></div>

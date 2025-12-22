@@ -242,6 +242,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
   const [searchResults, setSearchResults] = useState<LedgerRow[]>([]);
   const [vendorComboboxOpen, setVendorComboboxOpen] = useState(false);
   const [descriptionComboboxOpen, setDescriptionComboboxOpen] = useState(false);
+  const [accountComboboxOpen, setAccountComboboxOpen] = useState(false);
   const [displayMode, setDisplayMode] = useState<'detail' | 'monthly' | 'vendor'>('detail');
   const [amountFilter, setAmountFilter] = useState<'all' | 'debit' | 'credit'>('all');
   const [selectedVendorForDrilldown, setSelectedVendorForDrilldown] = useState<string | null>(null);
@@ -646,19 +647,72 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* 계정 선택 */}
+            {/* 계정 선택 - 자동완성 */}
             <div className="space-y-2">
               <Label>계정과목 (선택사항 - 미선택 시 거래처/적요 필수)</Label>
-              <Select value={selectedAccount || undefined} onValueChange={(value) => setSelectedAccount(value || '')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="전체 계정 (선택 안 함)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accountNames.map(name => (
-                    <SelectItem key={name} value={name}>{name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={accountComboboxOpen} onOpenChange={setAccountComboboxOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={accountComboboxOpen}
+                    className="w-full justify-between"
+                  >
+                    {selectedAccount || "계정을 선택하거나 입력하세요"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0" align="start">
+                  <Command>
+                    <CommandInput 
+                      placeholder="계정명 검색..." 
+                      value={selectedAccount}
+                      onValueChange={setSelectedAccount}
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        {selectedAccount ? `"${selectedAccount}" 계정을 찾을 수 없습니다. 직접 입력하여 사용할 수 있습니다.` : '계정을 찾을 수 없습니다.'}
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {accountNames
+                          .filter(account => 
+                            !selectedAccount || 
+                            account.toLowerCase().includes(selectedAccount.toLowerCase())
+                          )
+                          .slice(0, 100)
+                          .map((account) => (
+                            <CommandItem
+                              key={account}
+                              value={account}
+                              onSelect={() => {
+                                setSelectedAccount(account);
+                                setAccountComboboxOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedAccount === account ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              {account}
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {selectedAccount && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => setSelectedAccount('')}
+                >
+                  초기화
+                </Button>
+              )}
             </div>
 
             {/* 거래처 검색 - 자동완성 */}
