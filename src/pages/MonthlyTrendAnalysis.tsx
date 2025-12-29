@@ -625,6 +625,27 @@ ${monthlyDataText}
       return;
     }
 
+    // 선택된 계정의 카테고리 확인
+    const hasSales = Array.from(selectedAccounts).some(account => 
+      categorizedAccounts.sales.includes(account)
+    );
+    const hasExpense = Array.from(selectedAccounts).some(account => 
+      categorizedAccounts.expenses.includes(account)
+    );
+    const hasManufacturing = Array.from(selectedAccounts).some(account => 
+      categorizedAccounts.manufacturing.includes(account)
+    );
+
+    // 파일명 접두사 생성
+    const prefixes: string[] = [];
+    if (hasSales) prefixes.push('매출');
+    if (hasExpense) prefixes.push('판관비');
+    if (hasManufacturing) prefixes.push('제조원가');
+    
+    const fileNamePrefix = prefixes.length > 0 
+      ? `${prefixes.join('_')}_월별추이분석` 
+      : '월별추이분석';
+
     const wb = XLSX.utils.book_new();
     const wsData: any[][] = [
       ['월별 추이 분석'],
@@ -647,12 +668,75 @@ ${monthlyDataText}
     ws['!cols'] = [{ wch: 25 }, ...Array(12).fill({ wch: 15 })];
     
     XLSX.utils.book_append_sheet(wb, ws, '월별추이');
-    XLSX.writeFile(wb, `월별추이분석_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `${fileNamePrefix}_${new Date().toISOString().split('T')[0]}.xlsx`);
 
     toast({
       title: '다운로드 완료',
       description: '월별 추이 분석 결과를 다운로드했습니다.',
     });
+  };
+
+  const downloadAIAnalysisExcel = (type: 'sales' | 'expense' | 'manufacturing') => {
+    let analysisText = '';
+    let title = '';
+    let sheetName = '';
+
+    if (type === 'sales') {
+      analysisText = salesAnalysis;
+      title = '매출 AI 분석 결과';
+      sheetName = '매출분석';
+    } else if (type === 'expense') {
+      analysisText = expenseAnalysis;
+      title = '판관비 AI 분석 결과';
+      sheetName = '판관비분석';
+    } else {
+      analysisText = manufacturingAnalysis;
+      title = '제조원가 AI 분석 결과';
+      sheetName = '제조원가분석';
+    }
+
+    if (!analysisText) {
+      toast({
+        title: '오류',
+        description: '다운로드할 분석 결과가 없습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // 분석 결과를 줄 단위로 분리하여 엑셀에 저장
+      const lines = analysisText.split('\n');
+      const wsData: any[][] = [
+        [title],
+        ['분석일시', new Date().toLocaleString('ko-KR')],
+        [],
+        ['분석 결과'],
+        ...lines.map(line => [line])
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 100 }]; // 넓은 열 설정
+      
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      
+      const fileName = `${title}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+      toast({
+        title: '다운로드 완료',
+        description: `${title}를 엑셀 파일로 다운로드했습니다.`,
+      });
+    } catch (error: any) {
+      console.error('AI 분석 결과 다운로드 오류:', error);
+      toast({
+        title: '오류',
+        description: `다운로드 중 오류가 발생했습니다: ${error.message}`,
+        variant: 'destructive',
+      });
+    }
   };
 
   return (
@@ -915,10 +999,20 @@ ${monthlyDataText}
           {salesAnalysis && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  매출 AI 분석 결과
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    매출 AI 분석 결과
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadAIAnalysisExcel('sales')}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    엑셀 다운로드
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="prose prose-sm max-w-none whitespace-pre-wrap text-sm">
@@ -931,10 +1025,20 @@ ${monthlyDataText}
           {expenseAnalysis && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  판관비 AI 분석 결과
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    판관비 AI 분석 결과
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadAIAnalysisExcel('expense')}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    엑셀 다운로드
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="prose prose-sm max-w-none whitespace-pre-wrap text-sm">
@@ -947,10 +1051,20 @@ ${monthlyDataText}
           {manufacturingAnalysis && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  제조원가 AI 분석 결과
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    제조원가 AI 분석 결과
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadAIAnalysisExcel('manufacturing')}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    엑셀 다운로드
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="prose prose-sm max-w-none whitespace-pre-wrap text-sm">

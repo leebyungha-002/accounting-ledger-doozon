@@ -70,14 +70,26 @@ npm run build
 npm run preview
 ```
 
-### 환경 변수 설정
+### 환경 변수 설정 (선택사항)
 
-프로젝트 루트에 `.env` 파일을 생성하고 Supabase 설정을 추가하세요:
+**참고**: 이 프로젝트는 환경 변수 없이도 기본 기능을 사용할 수 있습니다. Supabase는 선택사항이며, AI 분석 기능을 사용하려면 설정이 필요합니다.
 
+1. 프로젝트 루트에 `.env` 파일 생성:
+```bash
+# .env.example 파일을 복사하여 .env 파일 생성
+cp .env.example .env
+```
+
+2. `.env` 파일 편집하여 Supabase 설정 추가 (선택사항):
 ```env
 VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
 ```
+
+**중요 사항**:
+- ✅ **Supabase 없이도 사용 가능**: 파일 업로드, 분석 등 기본 기능은 환경 변수 없이 작동합니다.
+- ✅ **Google Gemini API 키**: 웹 인터페이스에서 직접 입력하므로 환경 변수 설정이 필요 없습니다.
+- ⚠️ **Supabase 설정**: AI 분석 기능을 사용하려면 Supabase 프로젝트를 생성하고 URL과 키를 설정해야 합니다.
 
 ## 📝 코드 수정 방법
 

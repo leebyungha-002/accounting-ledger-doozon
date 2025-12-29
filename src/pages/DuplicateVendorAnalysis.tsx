@@ -11,12 +11,18 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
+interface AccountDetail {
+  accountName: string;
+  transactions: number;
+  amount: number;
+}
+
 interface DuplicateVendor {
   vendorName: string;
-  salesAccount: string;
+  salesAccounts: AccountDetail[];
   salesTransactions: number;
   salesAmount: number;
-  purchaseAccount: string;
+  purchaseAccounts: AccountDetail[];
   purchaseTransactions: number;
   purchaseAmount: number;
   netAmount: number;
@@ -66,13 +72,20 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
 
   // 매출/매입 계정 찾기
   const relevantAccounts = useMemo(() => {
-    // 대변 계정: '매출' 또는 '매출액' 또는 '공사'로 끝나는 계정 (괄호 앞부분 확인)
+    // 대변 계정: '매출' 또는 '매출액' 또는 '공사' 또는 '수입'으로 끝나는 계정 (괄호 앞부분 확인)
     const salesAccounts = accountNames.filter(name => {
       // 괄호 앞부분만 추출 (예: "제품매출 (41110)" → "제품매출")
       const nameWithoutCode = name.split(/[\(（]/)[0].trim();
       const normalized = nameWithoutCode.replace(/\s/g, '').trim();
-      // '매출', '매출액', 또는 '공사'로 끝나는지 확인 (토목공사, 용역공사, 비계공사, 건축공사 등)
-      const matches = normalized.endsWith('매출') || normalized.endsWith('매출액') || normalized.endsWith('공사');
+      // '매출', '매출액', '공사', 또는 '수입'으로 끝나는지 확인
+      // 또는 특정 계정명 포함 여부 확인 (폐기물처분수입, 스팀판매수입, 자원회수시설운영수입)
+      const matches = normalized.endsWith('매출') || 
+                      normalized.endsWith('매출액') || 
+                      normalized.endsWith('공사') || 
+                      normalized.endsWith('수입') ||
+                      normalized.includes('폐기물처분수입') ||
+                      normalized.includes('스팀판매수입') ||
+                      normalized.includes('자원회수시설운영수입');
       if (matches) {
         console.log(`✅ 매출 계정 발견: "${name}" (정리 후: "${normalized}")`);
       }
@@ -123,18 +136,31 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
         if (!vendorHeader || !creditHeader) return;
         
         data.forEach(row => {
+          // 전기 데이터 필터링: 전기이월 관련 키워드가 포함된 행 제외
+          const isPreviousPeriod = Object.values(row).some(val => {
+            if (val === null || val === undefined) return false;
+            const str = String(val).trim();
+            const normalized = str.replace(/\s/g, '');
+            return normalized.includes('전기이월') || 
+                   normalized.includes('[전기이월]') ||
+                   str.includes('[ 전기이월 ]') ||
+                   str.includes('[ 전 기 이 월 ]');
+          });
+          if (isPreviousPeriod) return;
+          
           const vendorName = String(row[vendorHeader] || '').trim();
           const creditAmount = cleanAmount(row[creditHeader]);
           
-          if (!vendorName || creditAmount <= 0) return;
+          // 거래처명이 없거나 금액이 0인 경우만 제외 (마이너스 금액은 포함)
+          if (!vendorName || creditAmount === 0) return;
           
           if (!vendorMap.has(vendorName)) {
             vendorMap.set(vendorName, {
               vendorName,
-              salesAccount: accountName,
+              salesAccounts: [],
               salesTransactions: 0,
               salesAmount: 0,
-              purchaseAccount: '',
+              purchaseAccounts: [],
               purchaseTransactions: 0,
               purchaseAmount: 0,
               netAmount: 0,
@@ -142,6 +168,17 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
           }
           
           const vendor = vendorMap.get(vendorName)!;
+          
+          // 계정별 정보 추가 또는 업데이트
+          let accountDetail = vendor.salesAccounts.find(acc => acc.accountName === accountName);
+          if (!accountDetail) {
+            accountDetail = { accountName, transactions: 0, amount: 0 };
+            vendor.salesAccounts.push(accountDetail);
+          }
+          accountDetail.transactions++;
+          accountDetail.amount += creditAmount;
+          
+          // 전체 합계 업데이트
           vendor.salesTransactions++;
           vendor.salesAmount += creditAmount;
         });
@@ -158,25 +195,59 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
         if (!vendorHeader || !debitHeader) return;
         
         data.forEach(row => {
+          // 전기 데이터 필터링: 전기이월 관련 키워드가 포함된 행 제외
+          const isPreviousPeriod = Object.values(row).some(val => {
+            if (val === null || val === undefined) return false;
+            const str = String(val).trim();
+            const normalized = str.replace(/\s/g, '');
+            return normalized.includes('전기이월') || 
+                   normalized.includes('[전기이월]') ||
+                   str.includes('[ 전기이월 ]') ||
+                   str.includes('[ 전 기 이 월 ]');
+          });
+          if (isPreviousPeriod) return;
+          
           const vendorName = String(row[vendorHeader] || '').trim();
           const debitAmount = cleanAmount(row[debitHeader]);
           
-          if (!vendorName || debitAmount <= 0) return;
+          // 거래처명이 없거나 금액이 0인 경우만 제외 (마이너스 금액은 포함)
+          if (!vendorName || debitAmount === 0) return;
           
           const existingVendor = vendorMap.get(vendorName);
           
           if (existingVendor) {
-            // 이미 매출에 있는 거래처
-            existingVendor.purchaseAccount = accountName;
+            // 이미 매출에 있는 거래처 - 매입 정보 추가
+            // 계정별 정보 추가 또는 업데이트
+            let accountDetail = existingVendor.purchaseAccounts.find(acc => acc.accountName === accountName);
+            if (!accountDetail) {
+              accountDetail = { accountName, transactions: 0, amount: 0 };
+              existingVendor.purchaseAccounts.push(accountDetail);
+            }
+            accountDetail.transactions++;
+            accountDetail.amount += debitAmount;
+            
+            // 전체 합계 업데이트
             existingVendor.purchaseTransactions++;
             existingVendor.purchaseAmount += debitAmount;
+          } else {
+            // 매출에 없는 거래처도 매입 정보로 추가 (나중에 매출에서 발견될 수 있음)
+            vendorMap.set(vendorName, {
+              vendorName,
+              salesAccounts: [],
+              salesTransactions: 0,
+              salesAmount: 0,
+              purchaseAccounts: [{ accountName, transactions: 1, amount: debitAmount }],
+              purchaseTransactions: 1,
+              purchaseAmount: debitAmount,
+              netAmount: 0,
+            });
           }
         });
       });
       
-      // 3. 양쪽에 모두 있는 거래처만 필터링
+      // 3. 양쪽에 모두 있는 거래처만 필터링 (마이너스 금액도 포함)
       const duplicateResults = Array.from(vendorMap.values())
-        .filter(v => v.salesAmount > 0 && v.purchaseAmount > 0)
+        .filter(v => v.salesAmount !== 0 && v.purchaseAmount !== 0)
         .map(v => ({
           ...v,
           netAmount: v.salesAmount - v.purchaseAmount,
@@ -336,29 +407,49 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                   try {
                     const wb = XLSX.utils.book_new();
                     
-                    // 헤더 정의
+                    // 헤더 정의 (계정별 상세 포함)
                     const headers = [
                       '거래처명',
                       '매출계정',
-                      '매출거래건수',
-                      '매출금액',
+                      '매출계정별건수',
+                      '매출계정별금액',
+                      '매출합계건수',
+                      '매출합계금액',
                       '매입계정',
-                      '매입거래건수',
-                      '매입금액',
+                      '매입계정별건수',
+                      '매입계정별금액',
+                      '매입합계건수',
+                      '매입합계금액',
                       '순매출금액'
                     ];
                     
-                    // 데이터 준비
-                    const exportData = duplicateVendors.map(vendor => ({
-                      '거래처명': vendor.vendorName,
-                      '매출계정': vendor.salesAccount,
-                      '매출거래건수': vendor.salesTransactions,
-                      '매출금액': vendor.salesAmount,
-                      '매입계정': vendor.purchaseAccount,
-                      '매입거래건수': vendor.purchaseTransactions,
-                      '매입금액': vendor.purchaseAmount,
-                      '순매출금액': vendor.netAmount
-                    }));
+                    // 데이터 준비 (계정별 상세 포함)
+                    const exportData: any[] = [];
+                    duplicateVendors.forEach(vendor => {
+                      const maxAccounts = Math.max(vendor.salesAccounts.length, vendor.purchaseAccounts.length);
+                      
+                      if (maxAccounts === 0) return;
+                      
+                      for (let i = 0; i < maxAccounts; i++) {
+                        const salesAccount = vendor.salesAccounts[i] || { accountName: '', transactions: 0, amount: 0 };
+                        const purchaseAccount = vendor.purchaseAccounts[i] || { accountName: '', transactions: 0, amount: 0 };
+                        
+                        exportData.push({
+                          '거래처명': i === 0 ? vendor.vendorName : '', // 첫 번째 행에만 거래처명 표시
+                          '매출계정': salesAccount.accountName,
+                          '매출계정별건수': salesAccount.transactions,
+                          '매출계정별금액': salesAccount.amount,
+                          '매출합계건수': i === 0 ? vendor.salesTransactions : '',
+                          '매출합계금액': i === 0 ? vendor.salesAmount : '',
+                          '매입계정': purchaseAccount.accountName,
+                          '매입계정별건수': purchaseAccount.transactions,
+                          '매입계정별금액': purchaseAccount.amount,
+                          '매입합계건수': i === 0 ? vendor.purchaseTransactions : '',
+                          '매입합계금액': i === 0 ? vendor.purchaseAmount : '',
+                          '순매출금액': i === 0 ? vendor.netAmount : ''
+                        });
+                      }
+                    });
                     
                     const ws = XLSX.utils.json_to_sheet(exportData);
                     XLSX.utils.book_append_sheet(wb, ws, '이중거래처분석');
@@ -424,16 +515,21 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                     <div 
                       className="space-y-1.5 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900 transition-colors"
                       onClick={() => {
-                        const sheet = workbook.Sheets[vendor.purchaseAccount];
-                        const { data } = getDataFromSheet(sheet);
-                        const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
-                        if (vendorHeader) {
-                          const filteredData = data.filter(row => 
-                            String(row[vendorHeader] || '').trim() === vendor.vendorName
-                          );
-                          setAccountDetails(filteredData);
-                          setSelectedAccount({ accountName: vendor.purchaseAccount, vendorName: vendor.vendorName, type: 'purchase' });
-                        }
+                        // 모든 매입 계정에서 해당 거래처의 거래 내역 수집
+                        const allPurchaseData: LedgerRow[] = [];
+                        relevantAccounts.purchaseAccounts.forEach(accountName => {
+                          const sheet = workbook.Sheets[accountName];
+                          const { data } = getDataFromSheet(sheet);
+                          const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
+                          if (vendorHeader) {
+                            const filteredData = data.filter(row => 
+                              String(row[vendorHeader] || '').trim() === vendor.vendorName
+                            );
+                            allPurchaseData.push(...filteredData);
+                          }
+                        });
+                        setAccountDetails(allPurchaseData);
+                        setSelectedAccount({ accountName: vendor.purchaseAccounts.length > 0 ? vendor.purchaseAccounts.map(a => a.accountName).join(', ') : '모든 매입 계정', vendorName: vendor.vendorName, type: 'purchase' });
                       }}
                     >
                       <div className="flex items-center gap-1.5 text-red-700 dark:text-red-300">
@@ -441,13 +537,50 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                         <span className="font-semibold text-xs">매입 (공급자)</span>
                         <ExternalLink className="h-2.5 w-2.5 ml-auto" />
                       </div>
-                      <div className="space-y-0.5">
-                        <div className="text-xs text-red-600 dark:text-red-400 font-medium hover:underline">{vendor.purchaseAccount}</div>
-                        <div className="text-xl font-bold text-red-900 dark:text-red-100">
-                          ₩{vendor.purchaseAmount.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-red-600 dark:text-red-400">
-                          {vendor.purchaseTransactions.toLocaleString()}건
+                      <div className="space-y-1">
+                        {/* 계정별 상세 정보 */}
+                        {vendor.purchaseAccounts.length > 0 ? (
+                          <div className="space-y-1">
+                            {vendor.purchaseAccounts.map((account, accIdx) => (
+                              <div key={accIdx} className="text-xs border-b border-red-200 dark:border-red-800 pb-1 last:border-0">
+                                <div className="text-red-600 dark:text-red-400 font-medium">{account.accountName}</div>
+                                <div className="text-red-700 dark:text-red-300">
+                                  ₩{account.amount.toLocaleString()} ({account.transactions}건)
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-red-600 dark:text-red-400">계정 정보 없음</div>
+                        )}
+                        {/* 합계 정보 */}
+                        <div className="mt-2 pt-2 border-t border-red-300 dark:border-red-700">
+                          <div className="text-lg font-bold text-red-900 dark:text-red-100">
+                            합계: ₩{vendor.purchaseAmount.toLocaleString()}
+                          </div>
+                          <div 
+                            className="text-xs text-red-600 dark:text-red-400 cursor-pointer hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // 모든 매입 계정에서 해당 거래처의 거래 내역 수집
+                              const allPurchaseData: LedgerRow[] = [];
+                              relevantAccounts.purchaseAccounts.forEach(accountName => {
+                                const sheet = workbook.Sheets[accountName];
+                                const { data } = getDataFromSheet(sheet);
+                                const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
+                                if (vendorHeader) {
+                                  const filteredData = data.filter(row => 
+                                    String(row[vendorHeader] || '').trim() === vendor.vendorName
+                                  );
+                                  allPurchaseData.push(...filteredData);
+                                }
+                              });
+                              setAccountDetails(allPurchaseData);
+                              setSelectedAccount({ accountName: vendor.purchaseAccounts.length > 0 ? vendor.purchaseAccounts.map(a => a.accountName).join(', ') : '모든 매입 계정', vendorName: vendor.vendorName, type: 'purchase' });
+                            }}
+                          >
+                            총 {vendor.purchaseTransactions.toLocaleString()}건 (클릭하여 상세보기)
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -456,16 +589,21 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                     <div 
                       className="space-y-1.5 p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
                       onClick={() => {
-                        const sheet = workbook.Sheets[vendor.salesAccount];
-                        const { data } = getDataFromSheet(sheet);
-                        const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
-                        if (vendorHeader) {
-                          const filteredData = data.filter(row => 
-                            String(row[vendorHeader] || '').trim() === vendor.vendorName
-                          );
-                          setAccountDetails(filteredData);
-                          setSelectedAccount({ accountName: vendor.salesAccount, vendorName: vendor.vendorName, type: 'sales' });
-                        }
+                        // 모든 매출 계정에서 해당 거래처의 거래 내역 수집
+                        const allSalesData: LedgerRow[] = [];
+                        relevantAccounts.salesAccounts.forEach(accountName => {
+                          const sheet = workbook.Sheets[accountName];
+                          const { data } = getDataFromSheet(sheet);
+                          const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
+                          if (vendorHeader) {
+                            const filteredData = data.filter(row => 
+                              String(row[vendorHeader] || '').trim() === vendor.vendorName
+                            );
+                            allSalesData.push(...filteredData);
+                          }
+                        });
+                        setAccountDetails(allSalesData);
+                        setSelectedAccount({ accountName: vendor.salesAccounts.length > 0 ? vendor.salesAccounts.map(a => a.accountName).join(', ') : '모든 매출 계정', vendorName: vendor.vendorName, type: 'sales' });
                       }}
                     >
                       <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
@@ -473,14 +611,51 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                         <span className="font-semibold text-xs">매출 (고객)</span>
                         <ExternalLink className="h-2.5 w-2.5 ml-auto" />
                       </div>
-                      <div className="space-y-0.5">
-                        <div className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline">{vendor.salesAccount}</div>
-                        <div className="text-xl font-bold text-blue-900 dark:text-blue-100">
-                          ₩{vendor.salesAmount.toLocaleString()}
+                      <div className="space-y-1">
+                        {/* 계정별 상세 정보 */}
+                        {vendor.salesAccounts.length > 0 ? (
+                          <div className="space-y-1">
+                            {vendor.salesAccounts.map((account, accIdx) => (
+                              <div key={accIdx} className="text-xs border-b border-blue-200 dark:border-blue-800 pb-1 last:border-0">
+                                <div className="text-blue-600 dark:text-blue-400 font-medium">{account.accountName}</div>
+                                <div className="text-blue-700 dark:text-blue-300">
+                                  ₩{account.amount.toLocaleString()} ({account.transactions}건)
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-blue-600 dark:text-blue-400">계정 정보 없음</div>
+                        )}
+                        {/* 합계 정보 */}
+                        <div className="mt-2 pt-2 border-t border-blue-300 dark:border-blue-700">
+                          <div className="text-lg font-bold text-blue-900 dark:text-blue-100">
+                            합계: ₩{vendor.salesAmount.toLocaleString()}
+                          </div>
+                          <div 
+                            className="text-xs text-blue-600 dark:text-blue-400 cursor-pointer hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // 모든 매출 계정에서 해당 거래처의 거래 내역 수집
+                              const allSalesData: LedgerRow[] = [];
+                              relevantAccounts.salesAccounts.forEach(accountName => {
+                                const sheet = workbook.Sheets[accountName];
+                                const { data } = getDataFromSheet(sheet);
+                                const vendorHeader = robustFindHeader(Object.keys(data[0] || {}), ['거래처', '업체', '회사', 'vendor', 'customer']);
+                                if (vendorHeader) {
+                                  const filteredData = data.filter(row => 
+                                    String(row[vendorHeader] || '').trim() === vendor.vendorName
+                                  );
+                                  allSalesData.push(...filteredData);
+                                }
+                              });
+                              setAccountDetails(allSalesData);
+                              setSelectedAccount({ accountName: vendor.salesAccounts.length > 0 ? vendor.salesAccounts.map(a => a.accountName).join(', ') : '모든 매출 계정', vendorName: vendor.vendorName, type: 'sales' });
+                            }}
+                          >
+                            총 {vendor.salesTransactions.toLocaleString()}건 (클릭하여 상세보기)
+                          </div>
                         </div>
-                        <div className="text-xs text-blue-600 dark:text-blue-400">
-                          {vendor.salesTransactions.toLocaleString()}건
-                  </div>
                       </div>
                     </div>
                   </div>
@@ -512,10 +687,45 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
                     try {
                       const wb = XLSX.utils.book_new();
                       
-                      // 데이터 준비
+                      // 데이터 준비 (컬럼 순서: 날짜|적요란|코드|거래처|차변|대변|잔액 순서로)
+                      const allKeys = accountDetails.length > 0 ? Object.keys(accountDetails[0]) : [];
+                      
+                      // 차변 컬럼 찾기 (유연한 매칭)
+                      const debitKey = allKeys.find(k => 
+                        k.includes('차변') || 
+                        k.toLowerCase().includes('debit') ||
+                        k === '차변금액'
+                      );
+                      
+                      // 대변 컬럼 찾기
+                      const creditKey = allKeys.find(k => 
+                        k.includes('대변') || 
+                        k.toLowerCase().includes('credit') ||
+                        k === '대변금액'
+                      );
+                      
+                      // 잔액 컬럼 찾기
+                      const balanceKey = allKeys.find(k => 
+                        k.includes('잔액') || 
+                        k.toLowerCase().includes('balance')
+                      );
+                      
+                      // 우선순위 순서: 날짜, 적요란, 코드, 거래처, 차변, 대변, 잔액
+                      const preferredOrder = [
+                        '날짜', '적요란', '코드', '거래처',
+                        debitKey || '차변',
+                        creditKey || '대변',
+                        balanceKey || '잔액'
+                      ];
+                      
+                      const orderedKeys = [
+                        ...preferredOrder.filter(key => allKeys.includes(key)),
+                        ...allKeys.filter(key => !preferredOrder.includes(key))
+                      ];
+                      
                       const exportData = accountDetails.map(row => {
                         const obj: { [key: string]: any } = {};
-                        Object.keys(row).forEach(key => {
+                        orderedKeys.forEach(key => {
                           const val = row[key];
                           if (val instanceof Date) {
                             obj[key] = val.toLocaleDateString('ko-KR');
@@ -557,22 +767,111 @@ export const DuplicateVendorAnalysis: React.FC<DuplicateVendorAnalysisProps> = (
           <div className="mt-4">
             {accountDetails.length > 0 ? (
               <div className="rounded-md border">
+                {(() => {
+                  // 디버깅: 실제 컬럼 이름 확인
+                  if (accountDetails.length > 0) {
+                    const allKeys = Object.keys(accountDetails[0] || {});
+                    console.log('=== 상세보기 컬럼 정보 ===');
+                    console.log('전체 컬럼 목록:', allKeys);
+                    console.log('차변 관련 컬럼:', allKeys.filter(k => k.includes('차변') || k.toLowerCase().includes('debit')));
+                    console.log('대변 관련 컬럼:', allKeys.filter(k => k.includes('대변') || k.toLowerCase().includes('credit')));
+                    console.log('잔액 관련 컬럼:', allKeys.filter(k => k.includes('잔액') || k.toLowerCase().includes('balance')));
+                    console.log('첫 번째 행 샘플:', accountDetails[0]);
+                  }
+                  return null;
+                })()}
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      {Object.keys(accountDetails[0] || {}).map(key => (
-                        <TableHead key={key}>{key}</TableHead>
-                      ))}
+                      {(() => {
+                        // 컬럼 순서 정의: 날짜|적요란|코드|거래처|차변|대변|잔액 순서로 표시
+                        const allKeys = Object.keys(accountDetails[0] || {});
+                        
+                        // 차변 컬럼 찾기 (유연한 매칭)
+                        const debitKey = allKeys.find(k => 
+                          k.includes('차변') || 
+                          k.toLowerCase().includes('debit') ||
+                          k === '차변금액'
+                        );
+                        
+                        // 대변 컬럼 찾기
+                        const creditKey = allKeys.find(k => 
+                          k.includes('대변') || 
+                          k.toLowerCase().includes('credit') ||
+                          k === '대변금액'
+                        );
+                        
+                        // 잔액 컬럼 찾기
+                        const balanceKey = allKeys.find(k => 
+                          k.includes('잔액') || 
+                          k.toLowerCase().includes('balance')
+                        );
+                        
+                        // 우선순위 순서: 날짜, 적요란, 코드, 거래처, 차변, 대변, 잔액
+                        const preferredOrder = [
+                          '날짜', '적요란', '코드', '거래처',
+                          debitKey || '차변',
+                          creditKey || '대변',
+                          balanceKey || '잔액'
+                        ];
+                        
+                        const orderedKeys = [
+                          ...preferredOrder.filter(key => allKeys.includes(key)),
+                          ...allKeys.filter(key => !preferredOrder.includes(key))
+                        ];
+                        
+                        return orderedKeys.map(key => (
+                          <TableHead key={key}>{key}</TableHead>
+                        ));
+                      })()}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {accountDetails.map((row, idx) => (
                       <TableRow key={idx}>
-                        {Object.values(row).map((val, j) => (
-                          <TableCell key={j} className="text-sm">
-                            {val instanceof Date ? val.toLocaleDateString() : String(val ?? '')}
-                          </TableCell>
-                        ))}
+                        {(() => {
+                          // 컬럼 순서 정의: 날짜|적요란|코드|거래처|차변|대변|잔액 순서로 표시
+                          const allKeys = Object.keys(row);
+                          
+                          // 차변 컬럼 찾기 (유연한 매칭)
+                          const debitKey = allKeys.find(k => 
+                            k.includes('차변') || 
+                            k.toLowerCase().includes('debit') ||
+                            k === '차변금액'
+                          );
+                          
+                          // 대변 컬럼 찾기
+                          const creditKey = allKeys.find(k => 
+                            k.includes('대변') || 
+                            k.toLowerCase().includes('credit') ||
+                            k === '대변금액'
+                          );
+                          
+                          // 잔액 컬럼 찾기
+                          const balanceKey = allKeys.find(k => 
+                            k.includes('잔액') || 
+                            k.toLowerCase().includes('balance')
+                          );
+                          
+                          // 우선순위 순서: 날짜, 적요란, 코드, 거래처, 차변, 대변, 잔액
+                          const preferredOrder = [
+                            '날짜', '적요란', '코드', '거래처',
+                            debitKey || '차변',
+                            creditKey || '대변',
+                            balanceKey || '잔액'
+                          ];
+                          
+                          const orderedKeys = [
+                            ...preferredOrder.filter(key => allKeys.includes(key)),
+                            ...allKeys.filter(key => !preferredOrder.includes(key))
+                          ];
+                          
+                          return orderedKeys.map((key, j) => (
+                            <TableCell key={j} className="text-sm">
+                              {row[key] instanceof Date ? row[key].toLocaleDateString() : String(row[key] ?? '')}
+                            </TableCell>
+                          ));
+                        })()}
                       </TableRow>
                     ))}
                   </TableBody>

@@ -47,6 +47,8 @@ import { checkDialogWidth } from '@/utils/checkDialogWidth';
 interface AIInsightsProps {
   entries: JournalEntry[];
   onBackToHome?: () => void;
+  ledgerWorkbook?: XLSX.WorkBook | null; // 계정별원장 데이터 (선택적)
+  getDataFromSheet?: (worksheet: XLSX.WorkSheet | undefined) => { data: any[], headers: string[], orderedHeaders: string[] }; // 시트 데이터 추출 함수
 }
 
 type AnalysisStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -114,7 +116,7 @@ const isLastDayOfMonth = (dateStr: string | Date): boolean => {
   return date.getDate() === lastDay;
 };
 
-const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
+const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWorkbook, getDataFromSheet }) => {
   const { toast } = useToast();
   
   // 1. Clean Entries
@@ -402,6 +404,192 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // 계정명 정규화 함수 (숫자 제거)
+  const normalizeAccountName = (accountName: string): string => {
+    if (!accountName) return '';
+    // 앞의 숫자와 공백 제거 (예: "101 현금" -> "현금")
+    return String(accountName).replace(/^\d+\s*/, '').trim();
+  };
+
+  // 계정명 매칭 함수
+  const matchAccountName = (ledgerAccountName: string, journalAccountName: string): boolean => {
+    const normalizedLedger = normalizeAccountName(ledgerAccountName);
+    const normalizedJournal = normalizeAccountName(journalAccountName);
+    
+    // 정확히 일치하거나 포함 관계
+    return normalizedLedger === normalizedJournal || 
+           normalizedLedger.includes(normalizedJournal) || 
+           normalizedJournal.includes(normalizedLedger);
+  };
+
+  // 계정 분류 함수 (재무제표 순서)
+  const getAccountCategory = (accountName: string): number => {
+    if (!accountName) return 999;
+    const normalized = String(accountName).replace(/\s/g, '').toLowerCase();
+    
+    // 1. 유동성 자산 항목
+    const currentAssetKeywords = ['현금', '예금', '당좌', '매출채권', '외상매출금', '외상매출', '선급금', 
+      '선급비용', '재고자산', '재고', '단기투자', '유동자산', '미수금', '미수수익', '선수금', 
+      '선수수익', '기타유동자산', '매입채권', '외상매입금'];
+    if (currentAssetKeywords.some(kw => normalized.includes(kw)) && !normalized.includes('비유동')) {
+      return 1;
+    }
+    
+    // 2. 비유동성 자산 항목
+    const nonCurrentAssetKeywords = ['유형자산', '무형자산', '투자자산', '장기투자', '비유동자산', 
+      '토지', '건물', '기계장치', '차량운반구', '구축물', '영업권', '특허권', '상표권', '소프트웨어'];
+    if (nonCurrentAssetKeywords.some(kw => normalized.includes(kw)) || 
+        (normalized.includes('자산') && normalized.includes('비유동'))) {
+      return 2;
+    }
+    if (normalized.includes('자산') && !normalized.includes('부채') && !normalized.includes('자본')) {
+      // 자산이지만 위에서 분류되지 않은 경우 비유동자산으로 분류
+      return 2;
+    }
+    
+    // 3. 유동성 부채 항목
+    const currentLiabilityKeywords = ['매입채무', '외상매입금', '미지급금', '미지급비용', '단기차입금', 
+      '유동부채', '선수금', '선수수익', '예수금', '기타유동부채', '단기사채'];
+    if (currentLiabilityKeywords.some(kw => normalized.includes(kw)) && !normalized.includes('비유동')) {
+      return 3;
+    }
+    
+    // 4. 비유동성 부채 항목
+    const nonCurrentLiabilityKeywords = ['장기차입금', '비유동부채', '사채', '장기사채', '기타비유동부채'];
+    if (nonCurrentLiabilityKeywords.some(kw => normalized.includes(kw)) || 
+        (normalized.includes('부채') && normalized.includes('비유동'))) {
+      return 4;
+    }
+    if (normalized.includes('부채') || normalized.includes('차입') || normalized.includes('대출')) {
+      // 부채이지만 위에서 분류되지 않은 경우 비유동부채로 분류
+      return 4;
+    }
+    
+    // 5. 자본 항목
+    const equityKeywords = ['자본', '자본금', '주식', '자본잉여금', '이익잉여금', '자본변동', 
+      '기타포괄손익', '자기자본', '납입자본', '주식발행초과금', '자본조정'];
+    if (equityKeywords.some(kw => normalized.includes(kw))) {
+      return 5;
+    }
+    
+    // 6. 매출 항목
+    const revenueKeywords = ['매출', '매출액', '영업수익', '제품매출', '상품매출'];
+    if (revenueKeywords.some(kw => normalized.includes(kw)) && !normalized.includes('원가')) {
+      return 6;
+    }
+    
+    // 7. 판매비와 관리비 항목
+    const sgaKeywords = ['판매비', '관리비', '판관비', '판매관리비', '급여', '임금', '수당', 
+      '복리후생비', '임차료', '임대료', '광고선전비', '운반비', '보험료', '세금과공과', 
+      '감가상각비', '지급임차료', '수선비', '차량유지비', '소모품비', '도서인쇄비', 
+      '수도광열비', '지급수수료', '대손상각비', '여비교통비', '접대비', '통신비'];
+    if (sgaKeywords.some(kw => normalized.includes(kw))) {
+      return 7;
+    }
+    
+    // 8. 영업외수익 항목
+    const nonOperatingRevenueKeywords = ['영업외수익', '이자수익', '배당수익', '임대수익', 
+      '수수료수익', '기타수익', '외환차익', '유형자산처분이익'];
+    if (nonOperatingRevenueKeywords.some(kw => normalized.includes(kw))) {
+      return 8;
+    }
+    
+    // 9. 영업외비용 항목
+    const nonOperatingExpenseKeywords = ['영업외비용', '이자비용', '외환차손', '유형자산처분손실', 
+      '기타비용', '손실', '매출원가', '제품매출원가', '상품매출원가'];
+    if (nonOperatingExpenseKeywords.some(kw => normalized.includes(kw))) {
+      return 9;
+    }
+    
+    // 기타 (분류되지 않은 항목)
+    return 999;
+  };
+
+  // 계정별원장에서 전기이월 항목 추출하여 기초잔액 계산
+  const openingBalances = useMemo(() => {
+    if (!ledgerWorkbook || !getDataFromSheet) return new Map<string, number>();
+
+    const balances = new Map<string, number>();
+    const openingKeywords = ['전기이월', '차기이월', '기초잔액', '이월잔액'];
+
+    ledgerWorkbook.SheetNames.forEach(sheetName => {
+      const worksheet = ledgerWorkbook.Sheets[sheetName];
+      const { data } = getDataFromSheet(worksheet);
+
+      // 전기이월 항목 찾기
+      data.forEach(row => {
+        // 적요란 또는 내용 필드에서 전기이월 키워드 확인
+        const descriptionFields = ['적요', '적요란', '내용', '비고', 'description'];
+        let isOpeningEntry = false;
+
+        for (const field of descriptionFields) {
+          const value = row[field];
+          if (value) {
+            const str = String(value).replace(/\s/g, '');
+            if (openingKeywords.some(keyword => str.includes(keyword))) {
+              isOpeningEntry = true;
+              break;
+            }
+          }
+        }
+
+        if (isOpeningEntry) {
+          // 차변/대변 헤더 찾기
+          const debitFields = ['차변', '차   변', 'debit'];
+          const creditFields = ['대변', '대   변', 'credit'];
+          
+          let debit = 0;
+          let credit = 0;
+
+          for (const field of debitFields) {
+            if (row[field] !== undefined) {
+              const val = row[field];
+              if (typeof val === 'number') {
+                debit = val;
+                break;
+              } else if (typeof val === 'string') {
+                const parsed = parseFloat(val.replace(/,/g, ''));
+                if (!isNaN(parsed)) {
+                  debit = parsed;
+                  break;
+                }
+              }
+            }
+          }
+
+          for (const field of creditFields) {
+            if (row[field] !== undefined) {
+              const val = row[field];
+              if (typeof val === 'number') {
+                credit = val;
+                break;
+              } else if (typeof val === 'string') {
+                const parsed = parseFloat(val.replace(/,/g, ''));
+                if (!isNaN(parsed)) {
+                  credit = parsed;
+                  break;
+                }
+              }
+            }
+          }
+
+          // 기초잔액 = 차변 - 대변
+          const balance = debit - credit;
+          
+          // 시트명(계정명) 정규화하여 저장
+          const normalizedSheetName = normalizeAccountName(sheetName);
+          if (normalizedSheetName) {
+            // 이미 존재하는 경우 합산 (여러 전기이월 항목이 있을 수 있음)
+            const existing = balances.get(normalizedSheetName) || 0;
+            balances.set(normalizedSheetName, existing + balance);
+          }
+        }
+      });
+    });
+
+    return balances;
+  }, [ledgerWorkbook, getDataFromSheet]);
+
   // --- Calculated Stats for General Analysis ---
   const generalStats = useMemo(() => {
     const totalDebit = analysisEntries.reduce((sum, e) => sum + e.debit, 0);
@@ -409,24 +597,47 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
     const diff = totalDebit - totalCredit;
     const isBalanced = Math.abs(diff) < 1; 
 
-    const accountMap = new Map<string, { count: number; debit: number; credit: number }>();
+    const accountMap = new Map<string, { count: number; debit: number; credit: number; openingBalance?: number }>();
     analysisEntries.forEach(e => {
       const current = accountMap.get(e.accountName) || { count: 0, debit: 0, credit: 0 };
       accountMap.set(e.accountName, {
         count: current.count + 1,
         debit: current.debit + e.debit,
-        credit: current.credit + e.credit
+        credit: current.credit + e.credit,
+        openingBalance: current.openingBalance
       });
     });
 
-    const accountStats = Array.from(accountMap.entries()).map(([name, val]) => ({
-      name,
-      ...val,
-      balance: val.debit - val.credit
-    })).sort((a, b) => (b.debit + b.credit) - (a.debit + a.credit));
+    // 기초잔액 매칭
+    const accountStats = Array.from(accountMap.entries()).map(([name, val]) => {
+      // 분개장의 계정명과 계정별원장의 계정명 매칭
+      let matchedOpeningBalance = 0;
+      for (const [ledgerAccount, balance] of openingBalances.entries()) {
+        if (matchAccountName(ledgerAccount, name)) {
+          matchedOpeningBalance = balance;
+          break;
+        }
+      }
+
+      return {
+        name,
+        ...val,
+        balance: val.debit - val.credit,
+        openingBalance: matchedOpeningBalance,
+        endingBalance: matchedOpeningBalance + (val.debit - val.credit), // 기초잔액 + 당기변동
+        category: getAccountCategory(name) // 재무제표 순서 카테고리
+      };
+    }).sort((a, b) => {
+      // 1순위: 재무제표 순서 (카테고리)
+      if (a.category !== b.category) {
+        return a.category - b.category;
+      }
+      // 2순위: 같은 카테고리 내에서는 금액 순 (내림차순)
+      return (b.debit + b.credit) - (a.debit + a.credit);
+    });
 
     return { totalDebit, totalCredit, diff, isBalanced, accountStats };
-  }, [analysisEntries]);
+  }, [analysisEntries, openingBalances]);
 
   // --- Calculated Stats for Holiday Analysis ---
   const holidayStats = useMemo(() => {
@@ -2578,9 +2789,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                           const data = generalStats.accountStats.map(stat => ({
                             '계정과목': stat.name,
                             '전표 수': stat.count,
+                            '기초잔액': stat.openingBalance || 0,
                             '차변 합계': stat.debit,
                             '대변 합계': stat.credit,
-                            '잔액 (차-대)': stat.balance
+                            '당기변동': stat.balance,
+                            '기말잔액': stat.endingBalance !== undefined ? stat.endingBalance : stat.balance
                           }));
                           exportToExcel(data, '계정별상세내역', '계정별상세내역', [20, 10, 15, 15, 15]);
                         }}
@@ -2598,9 +2811,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                           <TableRow>
                             <TableHead>계정과목</TableHead>
                             <TableHead className="text-right">전표 수</TableHead>
+                            <TableHead className="text-right">기초잔액</TableHead>
                             <TableHead className="text-right">차변 합계</TableHead>
                             <TableHead className="text-right">대변 합계</TableHead>
-                            <TableHead className="text-right">잔액 (차-대)</TableHead>
+                            <TableHead className="text-right">당기변동</TableHead>
+                            <TableHead className="text-right">기말잔액</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2625,6 +2840,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                                     {stat.name}
                                   </TableCell>
                               <TableCell className="text-right">{stat.count}</TableCell>
+                              <TableCell className={`text-right ${
+                                (stat.openingBalance || 0) >= 0 ? 'text-blue-600' : 'text-red-500'
+                              }`}>
+                                {(stat.openingBalance || 0).toLocaleString()}
+                              </TableCell>
                               <TableCell 
                                 className="text-right cursor-pointer hover:underline hover:text-blue-600 transition-colors"
                                 onClick={(e) => {
@@ -2653,10 +2873,15 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome }) => {
                               >
                                 {stat.credit.toLocaleString()}
                               </TableCell>
-                              <TableCell className={`text-right font-semibold ${
+                              <TableCell className={`text-right ${
                                 stat.balance >= 0 ? 'text-blue-600' : 'text-red-500'
                               }`}>
                                 {stat.balance.toLocaleString()}
+                              </TableCell>
+                              <TableCell className={`text-right font-semibold ${
+                                (stat.endingBalance || stat.balance) >= 0 ? 'text-blue-600' : 'text-red-500'
+                              }`}>
+                                {(stat.endingBalance !== undefined ? stat.endingBalance : stat.balance).toLocaleString()}
                               </TableCell>
                             </TableRow>
                           ))}

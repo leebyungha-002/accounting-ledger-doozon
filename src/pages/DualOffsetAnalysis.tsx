@@ -104,10 +104,23 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
         if (!vendorHeader || !debitHeader) return;
         
         data.forEach(row => {
+          // 전기 데이터 필터링: 전기이월 관련 키워드가 포함된 행 제외
+          const isPreviousPeriod = Object.values(row).some(val => {
+            if (val === null || val === undefined) return false;
+            const str = String(val).trim();
+            const normalized = str.replace(/\s/g, '');
+            return normalized.includes('전기이월') || 
+                   normalized.includes('[전기이월]') ||
+                   str.includes('[ 전기이월 ]') ||
+                   str.includes('[ 전 기 이 월 ]');
+          });
+          if (isPreviousPeriod) return;
+          
           const vendorName = String(row[vendorHeader] || '').trim();
           const debitAmount = cleanAmount(row[debitHeader]);
           
-          if (!vendorName || debitAmount <= 0) return;
+          // 거래처명이 없거나 금액이 0인 경우만 제외 (마이너스 금액은 포함)
+          if (!vendorName || debitAmount === 0) return;
           
           if (!vendorMap.has(vendorName)) {
             vendorMap.set(vendorName, {
@@ -140,10 +153,23 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
         if (!vendorHeader || !creditHeader) return;
         
         data.forEach(row => {
+          // 전기 데이터 필터링: 전기이월 관련 키워드가 포함된 행 제외
+          const isPreviousPeriod = Object.values(row).some(val => {
+            if (val === null || val === undefined) return false;
+            const str = String(val).trim();
+            const normalized = str.replace(/\s/g, '');
+            return normalized.includes('전기이월') || 
+                   normalized.includes('[전기이월]') ||
+                   str.includes('[ 전기이월 ]') ||
+                   str.includes('[ 전 기 이 월 ]');
+          });
+          if (isPreviousPeriod) return;
+          
           const vendorName = String(row[vendorHeader] || '').trim();
           const creditAmount = cleanAmount(row[creditHeader]);
           
-          if (!vendorName || creditAmount <= 0) return;
+          // 거래처명이 없거나 금액이 0인 경우만 제외 (마이너스 금액은 포함)
+          if (!vendorName || creditAmount === 0) return;
           
           const existingVendor = vendorMap.get(vendorName);
           
@@ -156,9 +182,9 @@ export const DualOffsetAnalysis: React.FC<DualOffsetAnalysisProps> = ({
         });
       });
       
-      // 3. 양쪽에 모두 있는 거래처만 필터링
+      // 3. 양쪽에 모두 있는 거래처만 필터링 (마이너스 금액도 포함)
       const offsetResults = Array.from(vendorMap.values())
-        .filter(v => v.debitAmount > 0 && v.creditAmount > 0)
+        .filter(v => v.debitAmount !== 0 && v.creditAmount !== 0)
         .map(v => ({
           ...v,
           netAmount: v.debitAmount - v.creditAmount,
