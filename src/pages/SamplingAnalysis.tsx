@@ -11,7 +11,11 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, FlaskConical, Download, Calculator, AlertTriangle } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
-import { findDebitCreditHeaders } from '@/lib/headerUtils';
+import { findDebitCreditHeaders, robustFindHeader } from '@/lib/headerUtils';
+import { 
+  DATE_KEYWORDS, 
+  BALANCE_KEYWORDS
+} from '@/lib/columnMapping';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -28,22 +32,7 @@ const cleanAmount = (val: any): number => {
   return typeof val === 'number' ? val : 0;
 };
 
-const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => {
-  // 공백 제거 및 소문자 변환하여 비교
-  const normalizedHeaders = headers.map(h => ({
-    original: h,
-    normalized: h.replace(/\s/g, '').toLowerCase()
-  }));
 
-  for (const keyword of keywords) {
-    const normalizedKeyword = keyword.replace(/\s/g, '').toLowerCase();
-    const found = normalizedHeaders.find(h => h.normalized.includes(normalizedKeyword));
-    if (found) {
-      return found.original;
-    }
-  }
-  return undefined;
-};
 
 // 월계, 누계 행인지 확인하는 함수 (대괄호, 공백 무시)
 const isSummaryRow = (row: LedgerRow): boolean => {
@@ -125,9 +114,7 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
     if (samplingMethod !== 'mus' || accountData.length === 0) return 0;
     
     const headers = Object.keys(accountData[0] || {});
-    const dateHeader = headers.find(h => 
-      h.includes('일자') || h.includes('날짜')
-    );
+    const dateHeader = robustFindHeader(headers, DATE_KEYWORDS);
     const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, accountData, dateHeader);
 
     let total = 0;
@@ -183,9 +170,7 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
     if (includeAnomalies) {
       // 이상거래 탐지 수행 - 사용자가 선택한 차변/대변에 따라
       const headers = Object.keys(filteredData[0] || {});
-      const dateHeader = headers.find(h => 
-        h.includes('일자') || h.includes('날짜')
-      );
+      const dateHeader = robustFindHeader(headers, DATE_KEYWORDS);
       const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, filteredData, dateHeader);
       
       if ((debitHeader || creditHeader) && filteredData.length > 0) {
@@ -302,9 +287,7 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
     
     if (remainingData.length > 0) {
       const headers = Object.keys(remainingData[0] || {});
-      const dateHeader = headers.find(h => 
-        h.includes('일자') || h.includes('날짜')
-      );
+      const dateHeader = robustFindHeader(headers, DATE_KEYWORDS);
       const headersResult = findDebitCreditHeaders(headers, remainingData, dateHeader);
       debitHeader = headersResult.debitHeader;
       creditHeader = headersResult.creditHeader;
@@ -427,8 +410,7 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
 
   // 잔액 컬럼인지 확인하는 함수
   const isBalanceColumn = (header: string): boolean => {
-    const normalized = header.replace(/\s/g, '').toLowerCase();
-    return normalized.includes('잔액') || normalized.includes('balance');
+    return robustFindHeader([header], BALANCE_KEYWORDS) !== undefined;
   };
 
   const downloadSamples = () => {

@@ -247,10 +247,10 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
         const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
         const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
         
-        // 매출 계정은 대변, 비용 계정은 차변
+        // 매출 계정은 대변, 비용 계정은 차변 (-)금액도 그대로 반영
         const amount = isSalesAccount ? credit : debit;
         
-        if (amount > 0) {
+        if (amount !== 0) {
           amountCount++;
           monthlyDataMap[accountName][month] += amount;
         }

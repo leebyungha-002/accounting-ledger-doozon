@@ -12,8 +12,16 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Search, Download, Check, ChevronsUpDown } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import { findDebitCreditHeaders } from '@/lib/headerUtils';
+import { findDebitCreditHeaders, robustFindHeader } from '@/lib/headerUtils';
 import { maskAccountNumbersInRows } from '@/lib/anonymization';
+import { 
+  DATE_KEYWORDS, 
+  VENDOR_KEYWORDS, 
+  DESCRIPTION_KEYWORDS, 
+  ACCOUNT_KEYWORDS,
+  DEBIT_KEYWORDS,
+  CREDIT_KEYWORDS
+} from '@/lib/columnMapping';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -30,27 +38,7 @@ const cleanAmount = (val: any): number => {
   return typeof val === 'number' ? val : 0;
 };
 
-const robustFindHeader = (headers: string[], keywords: string[]): string | undefined => {
-  // 먼저 정확한 매칭 시도 (공백 제거 후)
-  for (const header of headers) {
-    const cleanedHeader = (header || "").trim().toLowerCase().replace(/\s/g, '');
-    for (const kw of keywords) {
-      const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
-      // 정확한 매칭 우선
-      if (cleanedHeader === cleanedKw) {
-        return header;
-      }
-    }
-  }
-  // 정확한 매칭이 없으면 포함 관계로 검색
-  return headers.find(h => {
-    const cleanedHeader = (h || "").toLowerCase().replace(/\s/g, '').replace(/^\d+[_.-]?/, '');
-    return keywords.some(kw => {
-      const cleanedKw = kw.toLowerCase().replace(/\s/g, '');
-      return cleanedHeader.includes(cleanedKw);
-    });
-  });
-};
+
 
 const parseDate = (value: any): Date | null => {
   if (value instanceof Date && !isNaN(value.getTime())) {
@@ -86,7 +74,6 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
 
   let headerIndex = -1;
   const searchLimit = Math.min(20, sheetDataAsArrays.length);
-  const dateKeywords = ['일자', '날짜', '거래일', 'date'];
   const otherHeaderKeywords = ['적요', '거래처', '차변', '대변', '잔액', '금액', '코드', '내용', '비고'];
 
   for (let i = 0; i < searchLimit; i++) {
@@ -94,7 +81,7 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
     if (!potentialHeaderRow || potentialHeaderRow.length < 3) continue;
 
     const headerContent = potentialHeaderRow.map(cell => String(cell || '').trim().toLowerCase()).join('|');
-    const hasDateKeyword = dateKeywords.some(kw => headerContent.includes(kw));
+    const hasDateKeyword = DATE_KEYWORDS.some(kw => headerContent.includes(kw));
     const otherKeywordCount = otherHeaderKeywords.filter(kw => headerContent.includes(kw)).length;
 
     if (hasDateKeyword && otherKeywordCount >= 2) {
@@ -115,7 +102,7 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
       const row = sheetDataAsArrays[i];
       if (!row || row.length < 2) continue;
       const rowContent = row.map(cell => String(cell || '').trim().toLowerCase()).join(' ');
-      if (dateKeywords.some(kw => rowContent.includes(kw)) && otherHeaderKeywords.filter(kw => rowContent.includes(kw)).length >= 2) {
+      if (DATE_KEYWORDS.some(kw => rowContent.includes(kw)) && otherHeaderKeywords.filter(kw => rowContent.includes(kw)).length >= 2) {
         if (i + 1 < sheetDataAsArrays.length && sheetDataAsArrays[i + 1]?.some(cell => cell !== null)) {
           headerIndex = i;
           break;
@@ -191,7 +178,7 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
     }
     
     // 2. 헤더 중복 제거 (두 번째 페이지 등)
-    const dateHeader = robustFindHeader(orderedHeaders, dateKeywords);
+    const dateHeader = robustFindHeader(orderedHeaders, DATE_KEYWORDS);
     if (dateHeader && (row[dateHeader] === dateHeader || row[dateHeader] === '일  자' || row[dateHeader] === '일자')) {
       return false;
     }
@@ -207,7 +194,7 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
     return true;
   });
 
-  const dateHeader = robustFindHeader(orderedHeaders, dateKeywords);
+  const dateHeader = robustFindHeader(orderedHeaders, DATE_KEYWORDS);
   if (dateHeader) {
     data.forEach(row => {
       const parsed = parseDate(row[dateHeader]);
@@ -218,7 +205,7 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
   }
 
   // 예금계정/차입금계정의 계좌번호 마스킹 ('계정명'을 우선순위로)
-  const accountNameHeader = robustFindHeader(orderedHeaders, ['계정명', '계정과목', '계정', 'account']);
+  const accountNameHeader = robustFindHeader(orderedHeaders, ACCOUNT_KEYWORDS);
   const maskedData = maskAccountNumbersInRows(data, accountNameHeader);
 
   const headers = maskedData.length > 0 ? Object.keys(maskedData[0]) : [];
@@ -271,11 +258,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     const vendorSet = new Set<string>();
     
     allData.forEach(({ data, headers }) => {
-      const vendorHeader = robustFindHeader(headers, ['거래처', '업체', '회사', 'vendor', 'customer']) ||
-                           headers.find(h => 
-                             h.includes('거래처') || h.includes('업체') || h.includes('회사') || 
-                             h.toLowerCase().includes('vendor') || h.toLowerCase().includes('customer')
-                           );
+      const vendorHeader = robustFindHeader(headers, VENDOR_KEYWORDS);
       
       if (vendorHeader) {
         data.forEach(row => {
@@ -295,10 +278,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     const descSet = new Set<string>();
     
     allData.forEach(({ data, headers }) => {
-      const descHeader = headers.find(h => 
-        h.includes('적요') || h.includes('내용') || h.includes('비고') ||
-        h.toLowerCase().includes('description') || h.toLowerCase().includes('remark')
-      );
+      const descHeader = robustFindHeader(headers, DESCRIPTION_KEYWORDS);
       
       if (descHeader) {
         data.forEach(row => {
@@ -440,12 +420,9 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       const sheet = workbook.Sheets[accountName];
       const { data, headers } = getDataFromSheet(sheet);
 
-      const vendorHeader = robustFindHeader(headers, ['거래처', '업체', '회사', 'vendor', 'customer']) || 
-                           headers.find(h => h.includes('거래처') || h.includes('업체'));
-      const descHeader = robustFindHeader(headers, ['적요', '내용', '비고', 'description', 'remark']) ||
-                         headers.find(h => h.includes('적요') || h.includes('내용') || h.includes('비고'));
-      const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date']) ||
-                         headers.find(h => h.includes('일자') || h.includes('날짜'));
+      const vendorHeader = robustFindHeader(headers, VENDOR_KEYWORDS);
+      const descHeader = robustFindHeader(headers, DESCRIPTION_KEYWORDS);
+      const dateHeader = robustFindHeader(headers, DATE_KEYWORDS);
       const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, data, dateHeader);
 
       // 디버깅: 거래처 검색 시 로그 출력
