@@ -1783,7 +1783,7 @@ ${JSON.stringify(sampledData, null, 2)}
                     samplingRatio: (sampledData.length / totalCount) * 100,
                     tokensUsed: estimatedTokens + 2000, // 입력 + 출력 추정
                     costKRW: actualCost,
-                    model: 'gemini-2.0-flash-exp',
+                    model: 'gemini-3-pro',
                   });
                   refreshUsageSummary();
                   

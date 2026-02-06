@@ -270,47 +270,50 @@ export const testApiKey = async (apiKey?: string): Promise<{ valid: boolean; mes
       };
     }
     
-    // 할당량을 절약하기 위해 하나의 모델만 테스트
-    // Google AI Studio 사용량 대시보드 기준: gemini-2.5-flash가 실제 사용 중이지만 404 오류 가능
-    // 테스트는 안정적인 gemini-1.5-flash 사용 (404 오류 방지)
-    const testModel = 'gemini-1.5-flash';
+    // Gemini Pro 3.0 정식 우선, 404 시 Preview로 테스트
+    const testModels = ['gemini-3-pro', 'gemini-3-pro-preview'];
+    let lastTestError: any = null;
     
-    try {
-      console.log(`🧪 ${testModel} 모델로 API Key 테스트 중...`);
-      const model = client.getGenerativeModel({ model: testModel });
-      
-      // API 호출 추적
-      const callInfo = trackApiCall('testApiKey', testModel);
-      
-      // 최소한의 테스트 프롬프트 (할당량 절약)
-      const testPrompt = 'Hi';
-      console.log('📡 테스트 요청 전송:', { 
-        model: testModel, 
-        prompt: testPrompt,
-        최근1분간호출: callInfo.recentCalls,
-        오늘총호출: callInfo.todayCalls
-      });
-      
-      const result = await model.generateContent(testPrompt);
-      const response = result.response;
-      const text = response.text();
-      
-      console.log(`✅ ${testModel} 모델로 테스트 성공! 응답:`, text.substring(0, 50));
-      return {
-        valid: true,
-        message: `API Key가 유효합니다. (테스트 모델: ${testModel})`
-      };
-    } catch (error: any) {
-      const errorDetails: any = {
-        message: error.message,
-        status: error.status,
-        statusText: error.statusText,
-        code: error.code
-      };
-      
-      console.warn(`⚠️ ${testModel} 모델 테스트 실패:`, errorDetails);
-      
-      // 429 오류 처리 (할당량 초과 또는 분당 요청 제한)
+    for (const testModel of testModels) {
+      try {
+        console.log(`🧪 ${testModel} 모델로 API Key 테스트 중...`);
+        const model = client.getGenerativeModel({ model: testModel });
+        
+        const callInfo = trackApiCall('testApiKey', testModel);
+        const testPrompt = 'Hi';
+        console.log('📡 테스트 요청 전송:', { 
+          model: testModel, 
+          prompt: testPrompt,
+          최근1분간호출: callInfo.recentCalls,
+          오늘총호출: callInfo.todayCalls
+        });
+        
+        const result = await model.generateContent(testPrompt);
+        const response = result.response;
+        const text = response.text();
+        
+        console.log(`✅ ${testModel} 모델로 테스트 성공! 응답:`, text.substring(0, 50));
+        return {
+          valid: true,
+          message: `API Key가 유효합니다. (테스트 모델: ${testModel})`
+        };
+      } catch (error: any) {
+        lastTestError = error;
+        const errorDetails: any = {
+          message: error.message,
+          status: error.status,
+          statusText: error.statusText,
+          code: error.code
+        };
+        console.warn(`⚠️ ${testModel} 모델 테스트 실패:`, errorDetails);
+        
+        const is404 = error.status === 404 || (error.message || '').includes('404') || (error.message || '').toLowerCase().includes('not found');
+        if (is404) {
+          console.log(`⏭️ ${testModel} 모델을 찾을 수 없습니다. 다음 모델로 시도합니다...`);
+          continue;
+        }
+        
+        // 429 오류 처리 (할당량 초과 또는 분당 요청 제한)
       if (error.status === 429 || 
           error.message?.toLowerCase().includes('429') ||
           error.message?.toLowerCase().includes('quota') ||
@@ -402,9 +405,10 @@ export const testApiKey = async (apiKey?: string): Promise<{ valid: boolean; mes
           `2. Google API 서버 일시적 오류\n` +
           `3. 잠시 후 다시 시도해주세요`
       };
+      }
     }
     
-    // 모든 테스트 모델 실패
+    // 모든 테스트 모델 실패 (gemini-3-pro, gemini-3-pro-preview 모두 404 등)
     const error = lastTestError;
     if (error) {
       console.warn(`⚠️ 모든 테스트 모델 실패:`, {
@@ -658,15 +662,14 @@ export const analyzeWithFlash = async (
   
     console.log('✅ Gemini 클라이언트 생성 성공');
   
-  // Google AI Studio 사용량 대시보드 참고:
-  // - gemini-2.5-flash가 실제로 사용 중이지만 404 오류가 많이 발생
-  // - 429 오류는 RPM 제한 문제 (일일 할당량은 초과하지 않았지만 분당 제한 초과)
-  // 모델 우선순위: Google AI Studio에서 실제 사용 중인 모델부터 시도
+  // Gemini Pro 3.0 정식 → Gemini Pro 3.0 Preview 순으로 사용, 404 시 대체 모델 폴백
   const modelsToTry = [
-    'gemini-2.5-flash',  // Google AI Studio에서 실제 사용 중인 모델 (최우선)
-    'gemini-1.5-flash',  // 안정적인 Flash 모델 (대체)
-    'gemini-2.0-flash-exp',  // AdvancedLedgerAnalysis에서 사용
-    'gemini-1.5-pro',  // Pro 모델
+    'gemini-3-pro',           // Gemini Pro 3.0 정식 (최우선)
+    'gemini-3-pro-preview',   // Gemini Pro 3.0 Preview (2순위)
+    'gemini-2.5-flash',       // 최신 2.5 Flash
+    'gemini-1.5-flash',       // 안정적인 Flash 모델 (대체)
+    'gemini-2.0-flash-exp',   // AdvancedLedgerAnalysis에서 사용
+    'gemini-1.5-pro',         // Pro 모델
   ];
   
   console.log('📋 시도할 모델 목록:', modelsToTry);
@@ -674,12 +677,10 @@ export const analyzeWithFlash = async (
   let lastError: any = null;
   const maxRetries = 0; // 할당량 절약: 재시도 없음 (첫 번째 모델만 시도)
   
-  // 첫 번째 모델만 시도 (할당량 절약)
-  const primaryModel = modelsToTry[0]; // gemini-2.5-flash (Google AI Studio에서 실제 사용 중)
+  const primaryModel = modelsToTry[0]; // gemini-3-pro (Gemini Pro 3.0 정식)
   
-  console.log(`🎯 모델 선택: ${primaryModel} (Google AI Studio 사용량 대시보드 기준)`);
-  console.log(`💡 참고: Google AI Studio에서 이 모델을 사용 중이지만, 404 오류가 발생할 수 있습니다.`);
-  console.log(`💡 404 오류 발생 시 자동으로 다음 모델(gemini-1.5-flash)로 대체됩니다.`);
+  console.log(`🎯 모델 선택: ${primaryModel} (Gemini Pro 3.0 정식) → 실패 시 ${modelsToTry[1]} (Preview)`);
+  console.log(`💡 404 오류 발생 시 자동으로 다음 모델로 대체됩니다.`);
   
   // 429 오류 자동 재시도 로직
   const maxRetriesFor429 = 3; // 최대 3회 재시도
@@ -1000,7 +1001,7 @@ export const analyzeWithPro = async (
     throw new Error('API Key가 설정되지 않았습니다. 설정 버튼을 클릭하여 Google Gemini API Key를 입력해주세요.');
   }
   
-  const model = client.getGenerativeModel({ model: 'gemini-1.5-pro' });
+  const model = client.getGenerativeModel({ model: 'gemini-3-pro' });
   const result = await model.generateContent(prompt);
   const response = result.response;
   return response.text();

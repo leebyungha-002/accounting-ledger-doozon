@@ -145,11 +145,13 @@ Return JSON in the following format:
 Keep the content professional and in Korean. Use markdown for formatting.
 `;
 
-  // 여러 모델 시도 (404 오류 방지)
+  // Gemini Pro 3.0 정식 → Preview 순, 404 시 대체 모델
   const modelsToTry = [
-    'gemini-1.5-flash-latest',  // 최신 Flash 모델 (우선)
-    'gemini-1.5-flash',         // 기본 Flash 모델
+    'gemini-3-pro',             // Gemini Pro 3.0 정식 (최우선)
+    'gemini-3-pro-preview',     // Gemini Pro 3.0 Preview (2순위)
     'gemini-2.5-flash',         // 최신 2.5 Flash
+    'gemini-1.5-flash-latest',  // 최신 Flash 모델
+    'gemini-1.5-flash',         // 기본 Flash 모델
     'gemini-1.5-pro',           // Pro 모델
   ];
   
@@ -276,11 +278,13 @@ Return JSON in the following format:
 If none, items should be an empty array.
 `;
 
-  // 여러 모델 시도 (404 오류 방지)
+  // Gemini Pro 3.0 정식 → Preview 순, 404 시 대체 모델
   const modelsToTry = [
-    'gemini-1.5-flash-latest',  // 최신 Flash 모델 (우선)
-    'gemini-1.5-flash',         // 기본 Flash 모델
+    'gemini-3-pro',             // Gemini Pro 3.0 정식 (최우선)
+    'gemini-3-pro-preview',     // Gemini Pro 3.0 Preview (2순위)
     'gemini-2.5-flash',         // 최신 2.5 Flash
+    'gemini-1.5-flash-latest',  // 최신 Flash 모델
+    'gemini-1.5-flash',         // 기본 Flash 모델
     'gemini-1.5-pro',           // Pro 모델
   ];
   
@@ -446,54 +450,59 @@ ${topAccounts.map(a => `- ${a.name}: ${a.count}건, 평균 ${Math.round(a.avgAmo
 예: {"suggestedMinAmount": 150000, "reason": "95백분위수 기준으로 상위 5% 항목만 분석하면 약 500건 정도로 적정한 분석량이 됩니다."}
 `;
 
-  try {
-    const model = client.getGenerativeModel({ 
-      model: 'gemini-2.5-flash',
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.7,
-      },
-    });
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const text = response.text();
-    
-    if (!text) {
-      return calculateStatisticalMinAmount(entries);
-    }
+  const suggestModels = ['gemini-3-pro', 'gemini-3-pro-preview'];
+  for (const modelName of suggestModels) {
+    try {
+      const model = client.getGenerativeModel({ 
+        model: modelName,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.7,
+        },
+      });
+      const result = await model.generateContent(prompt);
+      const response = result.response;
+      const text = response.text();
+      
+      if (!text) continue;
 
-    const parsed = JSON.parse(text);
-    const suggestedAmount = parsed.suggestedMinAmount || calculateStatisticalMinAmount(entries);
-    const reason = parsed.reason || 'AI가 제안한 금액입니다.';
-    
-    // 제안 금액이 합리적인 범위인지 확인
-    if (suggestedAmount >= minAmount && suggestedAmount <= maxAmount) {
-      return { 
-        amount: Math.round(suggestedAmount),
-        reason: reason
-      };
-    } else {
+      const parsed = JSON.parse(text);
+      const suggestedAmount = parsed.suggestedMinAmount || calculateStatisticalMinAmount(entries);
+      const reason = parsed.reason || 'AI가 제안한 금액입니다.';
+      
+      // 제안 금액이 합리적인 범위인지 확인
+      if (suggestedAmount >= minAmount && suggestedAmount <= maxAmount) {
+        return { 
+          amount: Math.round(suggestedAmount),
+          reason: reason
+        };
+      } else {
+        const amount = calculateStatisticalMinAmount(entries);
+        return { 
+          amount,
+          reason: '제안 금액이 범위를 벗어나 통계적 방법으로 재계산했습니다.'
+        };
+      }
+    } catch (error: any) {
+      const is404 = error.status === 404 || (error.message || '').includes('404') || (error.message || '').toLowerCase().includes('not found');
+      if (is404) {
+        console.warn(`⚠️ ${modelName} 모델을 찾을 수 없습니다. 다음 모델로 시도합니다.`);
+        continue;
+      }
+      console.error("적정 금액 제안 오류:", error);
       const amount = calculateStatisticalMinAmount(entries);
-      return { 
-        amount,
-        reason: '제안 금액이 범위를 벗어나 통계적 방법으로 재계산했습니다.'
-      };
+      let reason = '오류가 발생하여 통계적 방법으로 계산했습니다.';
+      if (error.status === 429) {
+        reason = 'API 사용량 한도 초과로 통계적 방법으로 계산했습니다.';
+      } else if (error.status === 401 || error.status === 403) {
+        reason = 'API 인증 오류로 통계적 방법으로 계산했습니다.';
+      }
+      return { amount, reason };
     }
-  } catch (error: any) {
-    console.error("적정 금액 제안 오류:", error);
-    // 오류가 발생해도 통계적 방법으로 대체하여 null을 반환하지 않음
-    const amount = calculateStatisticalMinAmount(entries);
-    let reason = '오류가 발생하여 통계적 방법으로 계산했습니다.';
-    if (error.status === 429) {
-      reason = 'API 사용량 한도 초과로 통계적 방법으로 계산했습니다.';
-    } else if (error.status === 404 || error.status === 401 || error.status === 403) {
-      reason = 'API 인증 오류로 통계적 방법으로 계산했습니다.';
-    }
-    return { 
-      amount,
-      reason
-    };
   }
+  // 모든 모델 실패 시 통계적 방법
+  const amount = calculateStatisticalMinAmount(entries);
+  return { amount, reason: 'API 모델을 사용할 수 없어 통계적 방법으로 계산했습니다.' };
 };
 
 /**
@@ -638,10 +647,11 @@ Return JSON in the following format:
 `;
 
   try {
-    // 여러 모델 시도 (404 오류 방지)
-    // 우선순위: gemini-2.5-flash (기본) → gemini-1.5-flash (대체) → gemini-2.0-flash-exp (대체) → gemini-1.5-pro (대체)
+    // Gemini Pro 3.0 정식 → Preview 순, 404 시 대체 모델
     const modelsToTry = [
-      'gemini-2.5-flash',         // 기본 - Google AI Studio 사용량 기준
+      'gemini-3-pro',             // Gemini Pro 3.0 정식 (최우선)
+      'gemini-3-pro-preview',     // Gemini Pro 3.0 Preview (2순위)
+      'gemini-2.5-flash',         // 최신 2.5 Flash
       'gemini-1.5-flash',         // 대체 - 404 오류 시 자동 대체
       'gemini-2.0-flash-exp',     // 대체 - AdvancedLedgerAnalysis에서 사용
       'gemini-1.5-pro',           // 대체 - Pro 모델

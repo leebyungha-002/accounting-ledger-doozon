@@ -301,10 +301,10 @@ const AIAnalysis: React.FC = () => {
           
           if (entries.length > 0) {
             setJournalEntries(entries);
-            setCurrentView('ai');
+            // AI 화면 전환은 'AI 심층 분석 시작' 버튼 클릭 시에만 수행
             toast({
               title: '파일 업로드 성공',
-              description: `${entries.length}건의 데이터를 불러왔습니다.`,
+              description: `${entries.length}건의 데이터를 불러왔습니다. 'AI 심층 분석 시작'을 눌러 분석 화면으로 이동하세요.`,
             });
           } else {
             toast({
@@ -587,11 +587,8 @@ const AIAnalysis: React.FC = () => {
                       </p>
                     </div>
                     <Button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSafeClick(() => setCurrentView('ai'), e);
-                      }}
+                      type="button"
+                      onClick={() => setCurrentView('ai')}
                       size="lg"
                       className="bg-blue-600 hover:bg-blue-700"
                     >
