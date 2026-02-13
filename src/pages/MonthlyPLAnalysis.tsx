@@ -126,8 +126,8 @@ const MonthlyPLAnalysis = () => {
         const debit = parseFloat(row['__EMPTY_3'] || 0);
         const credit = parseFloat(row['__EMPTY_4'] || 0);
         const amount = debit + credit;
-        
-        if (amount > 0) {
+        // 마이너스 금액도 월별 집계에 반영
+        if (amount !== 0) {
           data[sheetName][month] += amount;
         }
       }

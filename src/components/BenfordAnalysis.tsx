@@ -290,6 +290,9 @@ ${results.map(r => `| ${r.digit} | ${r.actualCount.toLocaleString()} | ${r.actua
       });
 
       // 차트를 이미지로 변환하여 엑셀에 삽입
+      const dataEndRow = 6 + benfordResults.length;
+      let lastContentRow = dataEndRow + 2; // 이미지 없을 때 AI 시작 기준
+
       if (chartWrapperRef.current) {
         try {
           const canvas = await html2canvas(chartWrapperRef.current, {
@@ -307,7 +310,6 @@ ${results.map(r => `| ${r.digit} | ${r.actualCount.toLocaleString()} | ${r.actua
           });
 
           // 이미지를 삽입할 위치 계산 (데이터 테이블 아래)
-          const dataEndRow = 6 + benfordResults.length;
           const imageStartRow = dataEndRow + 3;
 
           // 이미지 삽입
@@ -315,26 +317,28 @@ ${results.map(r => `| ${r.digit} | ${r.actualCount.toLocaleString()} | ${r.actua
             tl: { col: 0, row: imageStartRow },
             ext: { width: 800, height: 400 },
           });
+          // 이미지가 차지하는 행 아래에 AI 의견 배치 (겹침 방지)
+          lastContentRow = imageStartRow + 28;
         } catch (imageError) {
           console.warn('차트 이미지 변환 실패:', imageError);
-          // 이미지 변환 실패해도 계속 진행
         }
       }
 
-      // AI 의견 추가
-    if (aiInsight) {
-        const aiStartRow = benfordResults.length + 10;
-        worksheet.getCell(`A${aiStartRow}`).value = 'AI 감사인 의견';
-        worksheet.getCell(`A${aiStartRow}`).font = { bold: true };
-        
-      const aiLines = aiInsight.split('\n');
-        aiLines.forEach((line, idx) => {
-          const row = worksheet.getRow(aiStartRow + 1 + idx);
-          row.getCell(1).value = line || ' ';
-          // 셀 병합하여 전체 너비 사용
-          worksheet.mergeCells(`A${aiStartRow + 1 + idx}:E${aiStartRow + 1 + idx}`);
-        });
-      }
+      // AI 감사인 의견 항상 추가 (차트 아래에 배치)
+      const aiStartRow = lastContentRow + 2;
+      worksheet.getCell(`A${aiStartRow}`).value = 'AI 감사인 의견';
+      worksheet.getCell(`A${aiStartRow}`).font = { bold: true, size: 12 };
+
+      const aiContent = aiInsight && aiInsight.trim()
+        ? aiInsight.trim()
+        : '(AI 분석을 실행한 후 다운로드하면 의견이 포함됩니다. 벤포드 분석 실행 후 "AI 감사인 의견 요청"을 눌러주세요.)';
+      const aiLines = aiContent.split('\n');
+      aiLines.forEach((line, idx) => {
+        const rowNum = aiStartRow + 1 + idx;
+        const row = worksheet.getRow(rowNum);
+        row.getCell(1).value = line || ' ';
+        worksheet.mergeCells(`A${rowNum}:E${rowNum}`);
+      });
 
       // 열 너비 설정
       worksheet.columns = [
@@ -359,8 +363,8 @@ ${results.map(r => `| ${r.digit} | ${r.actualCount.toLocaleString()} | ${r.actua
 
     toast({
       title: '다운로드 완료',
-        description: '분석 결과와 그래프를 엑셀 파일로 저장했습니다.',
-      });
+      description: '분석 결과, 그래프, AI 감사인 의견을 엑셀 파일로 저장했습니다.',
+    });
     } catch (error: any) {
       console.error('엑셀 다운로드 오류:', error);
       toast({

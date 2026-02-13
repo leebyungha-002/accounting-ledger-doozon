@@ -747,13 +747,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       return counterSearchSide === '차변' ? e.debit > 0 : e.credit > 0;
     });
 
-    console.log('상대계정 분석 시작:', {
-      searchTerm: counterSearchTerm,
-      side: counterSearchSide,
-      targetEntriesCount: targetEntries.length,
-      sampleEntry: targetEntries[0]
-    });
-
     if (targetEntries.length === 0) {
       setCounterStatus('success');
       setCounterResult({
@@ -782,11 +775,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       }
     });
 
-    console.log('추출된 전표번호:', {
-      count: targetEntryNumbers.size,
-      sample: Array.from(targetEntryNumbers).slice(0, 10)
-    });
-
     // 4. 각 전표번호별로 그룹핑하여 전체 항목 수집
     const entryNumberGroups = new Map<string, JournalEntry[]>();
     
@@ -801,60 +789,20 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       }
     });
 
-    console.log('전표번호별 그룹핑 결과:', {
-      groupCount: entryNumberGroups.size,
-      totalEntriesInGroups: Array.from(entryNumberGroups.values()).reduce((sum, group) => sum + group.length, 0),
-      sampleGroup: Array.from(entryNumberGroups.entries()).slice(0, 5).map(([key, values]) => ({
-        entryNumber: key,
-        count: values.length,
-        accounts: values.map(v => ({
-          name: v.accountName,
-          side: v.debit > 0 ? '차변' : (v.credit > 0 ? '대변' : '없음'),
-          debit: v.debit,
-          credit: v.credit
-        }))
-      }))
-    });
-
     // 5. 각 전표번호별로 상대계정 찾기 (계정명과 금액 함께 저장)
     // 전표번호별로 집계 (전표번호당 1건으로 카운트)
     const counterAccountByEntryNumber = new Map<string, Map<string, number>>(); // entryNumber -> {accountName: amount}
 
     targetEntryNumbers.forEach(entryNumber => {
       const group = entryNumberGroups.get(entryNumber);
-      if (!group || group.length === 0) {
-        console.log(`[${entryNumber}]: 그룹이 비어있음`);
-        return;
-      }
+      if (!group || group.length === 0) return;
 
-      // 이 전표번호에서 선택한 계정명과 차변/대변에 해당하는 항목이 있는지 확인
       const targetInGroup = group.filter(e => {
         if (e.accountName !== counterSearchTerm) return false;
         return counterSearchSide === '차변' ? e.debit > 0 : e.credit > 0;
       });
 
-      if (targetInGroup.length === 0) {
-        console.log(`[${entryNumber}]: 타겟 항목 없음`);
-        return;
-      }
-
-      console.log(`[${entryNumber}]: 타겟 항목 ${targetInGroup.length}개 발견`, {
-        targets: targetInGroup.map(t => ({
-          accountName: t.accountName,
-          debit: t.debit,
-          credit: t.credit
-        }))
-      });
-
-      // 그룹 전체 항목 확인
-      console.log(`[${entryNumber}]: 그룹 전체 항목 ${group.length}개`, {
-        allItems: group.map(g => ({
-          accountName: g.accountName,
-          side: g.debit > 0 ? '차변' : (g.credit > 0 ? '대변' : '없음'),
-          debit: g.debit,
-          credit: g.credit
-        }))
-      });
+      if (targetInGroup.length === 0) return;
 
       // 이 전표번호에서 반대편 계정 찾기
       // 차변을 선택했으면 대변 계정을 찾고, 대변을 선택했으면 차변 계정을 찾음
@@ -870,34 +818,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
         }
         
         // 반대편만 추출 (차변 선택시: credit > 0인 항목, 대변 선택시: debit > 0인 항목)
-        if (oppositeSide === '대변') {
-          // 대변 항목: credit이 0보다 큰 경우
-          const isCredit = e.credit > 0;
-          // 디버깅: credit 값이 있는지 확인
-          if (isCredit) {
-            console.log(`  ✓ 대변 항목 발견: ${e.accountName}, credit=${e.credit}, debit=${e.debit}`);
-          }
-          return isCredit;
-        } else {
-          // 차변 항목: debit이 0보다 큰 경우
-          const isDebit = e.debit > 0;
-          // 디버깅: debit 값이 있는지 확인
-          if (isDebit) {
-            console.log(`  ✓ 차변 항목 발견: ${e.accountName}, debit=${e.debit}, credit=${e.credit}`);
-          }
-          return isDebit;
-        }
-      });
-
-      console.log(`[${entryNumber}]: 반대편 항목 ${counterAccounts.length}개 발견 (반대편: ${oppositeSide})`, {
-        oppositeSide,
-        groupSize: group.length,
-        counterAccounts: counterAccounts.map(c => ({
-          accountName: c.accountName,
-          side: c.debit > 0 ? '차변' : (c.credit > 0 ? '대변' : '없음'),
-          debit: c.debit,
-          credit: c.credit
-        }))
+        if (oppositeSide === '대변') return e.credit > 0;
+        return e.debit > 0;
       });
 
       // 이 전표번호에서 발견된 상대계정들 (계정명과 금액 함께 저장)
@@ -911,27 +833,9 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
         counterAccountAmounts.set(counter.accountName, currentAmount + amount);
       });
 
-      // 이 전표번호에서 상대계정이 하나라도 발견되면 저장
       if (counterAccountAmounts.size > 0) {
         counterAccountByEntryNumber.set(entryNumber, counterAccountAmounts);
-        console.log(`[${entryNumber}]: 상대계정 ${counterAccountAmounts.size}개 저장`, {
-          accounts: Array.from(counterAccountAmounts.entries()).map(([name, amount]) => ({
-            accountName: name,
-            amount: amount
-          }))
-        });
-      } else {
-        console.log(`[${entryNumber}]: 상대계정 없음`);
       }
-    });
-
-    console.log('전표번호별 상대계정 집계:', {
-      entryNumberCount: counterAccountByEntryNumber.size,
-      totalEntryNumbers: targetEntryNumbers.size,
-      sample: Array.from(counterAccountByEntryNumber.entries()).slice(0, 5).map(([entryNum, accountNames]) => ({
-        entryNumber: entryNum,
-        counterAccounts: Array.from(accountNames)
-      }))
     });
 
     // 6. 전체 상대계정별로 집계 (전표번호 건수와 금액 모두 집계)
@@ -948,17 +852,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       });
     });
 
-    console.log('상대계정 분석 결과:', {
-      targetEntryNumbersCount: targetEntryNumbers.size,
-      entryNumbersWithCounters: counterAccountByEntryNumber.size,
-      uniqueCounterAccounts: counterFreq.size,
-      counterAccounts: Array.from(counterFreq.entries()).slice(0, 10).map(([name, data]) => ({
-        accountName: name,
-        count: data.count,
-        amount: data.amount
-      }))
-    });
-
     // 7. 결과 포맷팅
     const sortedCounters = Array.from(counterFreq.entries())
       .map(([name, data]) => ({ name, count: data.count, amount: data.amount }))
@@ -971,13 +864,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       amount,
       percentage: totalCounterHits > 0 ? ((count / totalCounterHits) * 100).toFixed(1) + '%' : '0%'
     }));
-
-    console.log('상대계정 분석 최종 결과:', {
-      totalTransactions: targetEntryNumbers.size, // 전표번호 건수
-      uniqueCounterAccounts: sortedCounters.length,
-      totalCounterHits,
-      breakdown: breakdown.slice(0, 5)
-    });
 
     const resultData: CounterAccountAnalysisResult = {
       accountName: counterSearchTerm,
@@ -1000,83 +886,39 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     return names.join(', ');
   };
 
-  const getCounterDrilldownData = () => {
-    if (!counterResult || !counterDrilldownAccount) {
-      console.log('getCounterDrilldownData: 조건 불만족', { 
-        hasCounterResult: !!counterResult, 
-        counterDrilldownAccount 
-      });
-      return [];
-    }
-    
-    // 타겟 계정명과 차변/대변으로 필터링된 전표번호들 찾기
+  // 상대계정 드릴다운 데이터 — useMemo로 한 번만 계산 (렌더 시 반복 호출 방지, 프리징 완화)
+  const counterDrilldownData = useMemo(() => {
+    if (!counterResult || !counterDrilldownAccount) return [];
     const targetEntryNumbers = new Set<string>();
     counterResult.transactions.forEach(entry => {
-      if (entry.entryNumber) {
-        targetEntryNumbers.add(String(entry.entryNumber));
-      }
+      if (entry.entryNumber) targetEntryNumbers.add(String(entry.entryNumber));
     });
-    
-    console.log('getCounterDrilldownData: 전표번호 수', targetEntryNumbers.size);
-    
-    // 각 전표번호에서 상대계정 항목들을 찾기 (타겟 항목 + 상대계정 항목)
     const drilldownEntries: JournalEntry[] = [];
-    
     targetEntryNumbers.forEach(entryNumber => {
-      // 같은 전표번호의 모든 항목
       const group = analysisEntries.filter(e => String(e.entryNumber) === entryNumber);
-      
-      // 타겟 항목(선택한 계정명과 차변/대변)
       const targetInGroup = group.filter(e => {
         if (e.accountName !== counterResult.accountName) return false;
         return counterResult.type === '차변' ? e.debit > 0 : e.credit > 0;
       });
-      
       if (targetInGroup.length === 0) return;
-      
-      // 반대편 항목 중 상대계정명과 일치하는 항목 찾기
       const oppositeSide = counterResult.type === '차변' ? '대변' : '차변';
       const counterInGroup = group.filter(e => {
         if (e.accountName !== counterDrilldownAccount) return false;
-        if (oppositeSide === '대변') return e.credit > 0;
-        return e.debit > 0;
+        return oppositeSide === '대변' ? e.credit > 0 : e.debit > 0;
       });
-      
-      // 타겟 항목과 상대계정 항목이 모두 있으면 상대계정 항목을 결과에 추가
-      // (드릴다운에서는 상대계정의 정보를 보여주므로)
-      if (targetInGroup.length > 0 && counterInGroup.length > 0) {
-        // 상대계정 항목을 반환 (각 상대계정 항목이 하나의 행이 됨)
-        drilldownEntries.push(...counterInGroup);
-      }
+      if (targetInGroup.length > 0 && counterInGroup.length > 0) drilldownEntries.push(...counterInGroup);
     });
-    
-    console.log('getCounterDrilldownData: 결과 항목 수', drilldownEntries.length);
     return drilldownEntries;
-  };
+  }, [counterResult, counterDrilldownAccount, analysisEntries]);
 
-  // 상대계정 상세내역의 월별 합계 계산
-  const getMonthlyTotalsForCounterAccount = () => {
-    if (!counterResult || !counterDrilldownAccount) {
-      console.log('getMonthlyTotalsForCounterAccount: 조건 불만족', {
-        hasCounterResult: !!counterResult,
-        counterDrilldownAccount
-      });
-      return [];
-    }
-    
-    const drilldownData = getCounterDrilldownData();
-    console.log('getMonthlyTotalsForCounterAccount: 데이터 수', drilldownData.length);
+  // 상대계정 월별 합계 — useMemo (counterDrilldownData 기반)
+  const monthlyTotalsForCounterAccount = useMemo(() => {
+    if (!counterResult || !counterDrilldownAccount || counterDrilldownData.length === 0) return [];
     const oppositeSide = counterResult.type === '차변' ? '대변' : '차변';
-    
-    // 월별로 그룹핑
     const monthlyMap = new Map<string, { debit: number; credit: number; count: number; label: string }>();
-    
-    drilldownData.forEach(entry => {
-      // 날짜 파싱
+    counterDrilldownData.forEach(entry => {
       let dateStr = String(entry.date);
       let date: Date;
-      
-      // 다양한 날짜 형식 처리
       if (entry.date instanceof Date) {
         date = entry.date;
       } else if (dateStr.includes('T')) {
@@ -1087,26 +929,16 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
         const cleaned = dateStr.replace(/\D/g, '');
         date = new Date(`${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}-${cleaned.substring(6, 8)}`);
       } else {
-        // 다른 형식 시도
         const cleaned = dateStr.replace(/\D/g, '');
-        if (cleaned.length >= 8) {
-          date = new Date(`${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}-${cleaned.substring(6, 8)}`);
-        } else {
-          date = new Date(dateStr);
-        }
+        date = cleaned.length >= 8
+          ? new Date(`${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}-${cleaned.substring(6, 8)}`)
+          : new Date(dateStr);
       }
-      
-      if (isNaN(date.getTime())) {
-        console.warn('날짜 파싱 실패:', entry.date);
-        return;
-      }
-      
+      if (isNaN(date.getTime())) return;
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthLabel = `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
-      
       const debitAmount = oppositeSide === '차변' ? entry.debit : 0;
       const creditAmount = oppositeSide === '대변' ? entry.credit : 0;
-      
       const current = monthlyMap.get(monthKey);
       if (current) {
         monthlyMap.set(monthKey, {
@@ -1116,16 +948,9 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
           label: current.label
         });
       } else {
-        monthlyMap.set(monthKey, {
-          debit: debitAmount,
-          credit: creditAmount,
-          count: 1,
-          label: monthLabel
-        });
+        monthlyMap.set(monthKey, { debit: debitAmount, credit: creditAmount, count: 1, label: monthLabel });
       }
     });
-    
-    // 월별로 정렬하여 반환
     return Array.from(monthlyMap.entries())
       .map(([key, value]) => ({
         month: key,
@@ -1136,7 +961,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
         count: value.count
       }))
       .sort((a, b) => a.month.localeCompare(b.month));
-  };
+  }, [counterResult, counterDrilldownAccount, counterDrilldownData]);
 
   // 전표번호별 분개장 조회
   const getJournalEntriesByVoucherNumber = (voucherNumber: string | null): JournalEntry[] => {
@@ -2302,7 +2127,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
   const handleCounterDrilldownDownload = () => {
     if (!counterResult || !counterDrilldownAccount) return;
     const oppositeSide = counterResult.type === '차변' ? '대변' : '차변';
-    const filteredData = getCounterDrilldownData().map(entry => {
+    const filteredData = counterDrilldownData.map(entry => {
       // 상대계정의 실제 금액 계산
       // 대변 검색 → 상대계정은 차변 → debit 사용
       // 차변 검색 → 상대계정은 대변 → credit 사용
@@ -3764,19 +3589,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                             {counterDrilldownAccount && (
                               <div className="mt-3 space-y-2">
                                 {/* 월별 합계 표시 (금액 클릭 시) - 상세내역 위에 별도 표시 */}
-                                {(() => {
-                                  console.log('=== 상대계정 월별합계 표시 조건 확인 ===');
-                                  console.log('counterDrilldownAmountClicked:', counterDrilldownAmountClicked);
-                                  console.log('counterDrilldownAccount:', counterDrilldownAccount);
-                                  const monthlyData = getMonthlyTotalsForCounterAccount();
-                                  console.log('monthlyDataLength:', monthlyData.length);
-                                  if (!counterDrilldownAmountClicked) {
-                                    console.warn('⚠️ 상대계정 월별합계가 표시되지 않습니다! counterDrilldownAmountClicked가 false입니다!');
-                                  } else {
-                                    console.log('✅ 상대계정 월별합계가 표시됩니다!');
-                                  }
-                                  return counterDrilldownAmountClicked;
-                                })() && (
+                                {counterDrilldownAmountClicked && (
                                   <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 mb-4">
                                     <CardHeader className="pb-3">
                                       <div className="flex items-center justify-between">
@@ -3787,8 +3600,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                                           variant="outline" 
                                           size="sm"
                                           onClick={() => {
-                                            const monthlyData = getMonthlyTotalsForCounterAccount();
-                                            const data = monthlyData.map(month => ({
+                                            const data = monthlyTotalsForCounterAccount.map(month => ({
                                               '월': month.label,
                                               '차변': month.debit,
                                               '대변': month.credit,
@@ -3818,8 +3630,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                                             </TableRow>
                                           </TableHeader>
                                           <TableBody>
-                                            {getMonthlyTotalsForCounterAccount().length > 0 ? (
-                                              getMonthlyTotalsForCounterAccount().map((month, idx) => (
+                                            {monthlyTotalsForCounterAccount.length > 0 ? (
+                                              monthlyTotalsForCounterAccount.map((month, idx) => (
                                                 <TableRow key={idx}>
                                                   <TableCell className="font-medium">{month.label}</TableCell>
                                                   <TableCell className="text-right">
@@ -3920,15 +3732,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                          {(() => {
-                                            const data = getCounterDrilldownData();
-                                            console.log('상세내역 렌더링:', { 
-                                              counterDrilldownAccount, 
-                                              dataLength: data.length,
-                                              hasCounterResult: !!counterResult 
-                                            });
-                                            return data.length > 0 ? (
-                                            getCounterDrilldownData().map((entry, idx) => {
+                                          {counterDrilldownData.length > 0 ? (
+                                            counterDrilldownData.map((entry, idx) => {
                                               // entry는 상대계정 항목
                                               // 대변 검색 시: 상대계정은 차변이므로 entry.debit 표시
                                               // 차변 검색 시: 상대계정은 대변이므로 entry.credit 표시
@@ -3967,14 +3772,13 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                                               <TableCell colSpan={8} className="text-center text-muted-foreground">
                                                 상세 내역이 없습니다.
                                               </TableCell>
-                                              </TableRow>
-                                            );
-                                          })()}
+                                            </TableRow>
+                                          )}
                                         </TableBody>
                                       </Table>
                                     </div>
                                     <div className="mt-4 text-sm text-muted-foreground">
-                                      총 {getCounterDrilldownData().length.toLocaleString()}건
+                                      총 {counterDrilldownData.length.toLocaleString()}건
                                     </div>
                                   </CardContent>
                                 </Card>

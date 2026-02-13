@@ -244,8 +244,10 @@ export const calculateBenfordStats = (transactions: Transaction[]): BenfordStats
   let total = 0;
   transactions.forEach(t => {
     const amount = Math.max(t.debit, t.credit);
-    if (amount > 0) {
-      const firstDigit = parseInt(amount.toString()[0]);
+    // 마이너스 금액은 절대값으로 벤포드 집계에 반영
+    if (amount !== 0) {
+      const absAmount = Math.abs(amount);
+      const firstDigit = parseInt(absAmount.toString()[0]);
       if (firstDigit >= 1 && firstDigit <= 9) {
         counts[firstDigit]++;
         total++;

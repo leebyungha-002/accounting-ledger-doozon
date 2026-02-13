@@ -65,10 +65,8 @@ const AIAnalysis: React.FC = () => {
       const windowWidth = window.innerWidth;
       const scrollbarWidth = 17; // 일반적인 스크롤바 너비
       if (e.clientX >= windowWidth - scrollbarWidth) {
-        // 스크롤바 영역 클릭이므로 클릭 방지 활성화
         isScrollbarClickRef.current = true;
         isScrollingRef.current = true;
-        console.log('스크롤바 클릭 감지 - 클릭 차단 활성화');
         if (scrollTimeoutRef.current) {
           clearTimeout(scrollTimeoutRef.current);
         }
@@ -90,7 +88,6 @@ const AIAnalysis: React.FC = () => {
           if (!button && e.clientX >= windowWidth - 50) {
             isScrollbarClickRef.current = true;
             isScrollingRef.current = true;
-            console.log('헤더 영역 스크롤바 클릭 감지');
             if (scrollTimeoutRef.current) {
               clearTimeout(scrollTimeoutRef.current);
             }
@@ -109,7 +106,6 @@ const AIAnalysis: React.FC = () => {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        console.log('스크롤바 클릭 차단');
         return false;
       }
       
@@ -197,37 +193,12 @@ const AIAnalysis: React.FC = () => {
     e.stopPropagation();
     
     // 스크롤 중이면 클릭 무시
-    if (isScrollingRef.current) {
-      console.log('스크롤 중으로 인한 클릭 무시');
-      return;
-    }
-    
-    // 마우스가 움직였으면 클릭 무시 (드래그)
-    if (isMouseMovingRef.current) {
-      console.log('마우스 이동으로 인한 클릭 무시');
-      return;
-    }
-    
-    // 마우스 다운 후 너무 빠른 클릭은 무시 (150ms 미만)
+    if (isScrollingRef.current || isMouseMovingRef.current) return;
     const timeSinceMouseDown = Date.now() - mouseDownTimeRef.current;
-    if (timeSinceMouseDown < 150 && timeSinceMouseDown > 0) {
-      console.log('너무 빠른 클릭 무시');
-      return;
-    }
-    
-    // 실제 버튼 요소 확인
+    if (timeSinceMouseDown < 150 && timeSinceMouseDown > 0) return;
     const target = e.target as HTMLElement;
     const button = target.closest('button');
-    if (!button) {
-      console.log('버튼 요소가 아님');
-      return;
-    }
-    
-    // 버튼이 비활성화되어 있으면 무시
-    if (button.disabled) {
-      console.log('비활성화된 버튼');
-      return;
-    }
+    if (!button || button.disabled) return;
     
     callback();
   };

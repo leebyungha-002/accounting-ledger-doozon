@@ -54,7 +54,18 @@ const parseDate = (value: any): Date | null => {
     return value;
   }
   if (typeof value === 'string') {
-    const match = value.match(/^(?<month>\d{1,2})[-/](?<day>\d{1,2})$/);
+    const trimmed = value.trim();
+    const ymd = trimmed.match(/^(?<y>\d{4})[-/](?<month>\d{1,2})[-/](?<day>\d{1,2})$/);
+    if (ymd && ymd.groups) {
+      const y = parseInt(ymd.groups.y, 10);
+      const month = parseInt(ymd.groups.month, 10) - 1;
+      const day = parseInt(ymd.groups.day, 10);
+      const d = new Date(y, month, day);
+      if (!isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === month && d.getDate() === day) {
+        return d;
+      }
+    }
+    const match = trimmed.match(/^(?<month>\d{1,2})[-/](?<day>\d{1,2})$/);
     if (match && match.groups) {
       const currentYear = new Date().getFullYear();
       const month = parseInt(match.groups.month, 10) - 1;
@@ -97,6 +108,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
   const [isAnalyzingSales, setIsAnalyzingSales] = useState<boolean>(false);
   const [isAnalyzingExpense, setIsAnalyzingExpense] = useState<boolean>(false);
   const [isAnalyzingManufacturing, setIsAnalyzingManufacturing] = useState<boolean>(false);
+  const [showStructureDialog, setShowStructureDialog] = useState<boolean>(false);
   const [showCostDialog, setShowCostDialog] = useState<boolean>(false);
   const [usageSummary, setUsageSummary] = useState<UsageSummary>(getUsageSummary());
 
@@ -107,10 +119,10 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
     const manufacturing: string[] = [];
     
     accountNames.forEach(name => {
-      // 매출 계정: 괄호 앞부분이 '매출' 또는 '매출액'으로 끝나는 계정만
+      // 매출 계정: 괄호 앞부분이 '매출', '매출액', '수입'(임대료수입 등)으로 끝나는 계정
       const nameWithoutCode = name.split(/[\(（]/)[0].trim();
       const normalized = nameWithoutCode.replace(/\s/g, '').trim();
-      const isSalesAccount = normalized.endsWith('매출') || normalized.endsWith('매출액');
+      const isSalesAccount = normalized.endsWith('매출') || normalized.endsWith('매출액') || normalized.endsWith('수입');
       
       if (isSalesAccount) {
         sales.push(name);
@@ -200,7 +212,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
     return { sales, expenses, manufacturing };
   }, [accountNames]);
 
-  // 월별 데이터 집계
+  // 월별 데이터 집계 (시트별 계정 vs 단일 시트+계정 컬럼 모두 지원)
   const monthlyData = useMemo(() => {
     const monthlyDataMap: { [account: string]: { [month: number]: number } } = {};
     
@@ -212,9 +224,30 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
     });
 
     selectedAccounts.forEach(accountName => {
-      const sheet = workbook.Sheets[accountName];
-      const { data: ledgerRows, headers } = getDataFromSheet(sheet);
-      
+      let ledgerRows: LedgerRow[] = [];
+      let headers: string[] = [];
+
+      const sheetByName = workbook.Sheets[accountName];
+      if (sheetByName) {
+        const result = getDataFromSheet(sheetByName);
+        ledgerRows = result.data;
+        headers = result.headers;
+      } else {
+        // 단일 시트 모드: 첫 시트에서 계정 컬럼으로 해당 계정 행만 필터
+        const firstSheetName = workbook.SheetNames[0];
+        const firstSheet = workbook.Sheets[firstSheetName];
+        if (!firstSheet) return;
+        const result = getDataFromSheet(firstSheet);
+        headers = result.headers;
+        const accountHeader = robustFindHeader(headers, ['계정과목', '계정명', '계정', 'account']);
+        if (!accountHeader) return;
+        ledgerRows = result.data.filter(
+          row => String(row[accountHeader] || '').trim() === accountName
+        );
+      }
+
+      if (ledgerRows.length === 0) return;
+
       const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date']) ||
                          headers.find(h => h.includes('일자') || h.includes('날짜'));
       const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, ledgerRows, dateHeader);
@@ -247,7 +280,7 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
         const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
         const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
         
-        // 매출 계정은 대변, 비용 계정은 차변 (-)금액도 그대로 반영
+        // 매출=대변, 판관비/제조원가=차변만 사용 (대변 금액 사용 안 함)
         const amount = isSalesAccount ? credit : debit;
         
         if (amount !== 0) {
@@ -739,6 +772,70 @@ ${monthlyDataText}
     }
   };
 
+  // 엑셀 구조 요약 (디버깅/지원용 — 이 내용을 복사해 개발자에게 전달하면 월별 0원 원인 파악에 도움이 됩니다)
+  const getExcelStructureText = (): string => {
+    const lines: string[] = [];
+    lines.push('=== 엑셀 구조 요약 ===');
+    lines.push('');
+    lines.push('시트 목록: ' + (workbook.SheetNames?.length ?? 0) + '개');
+    (workbook.SheetNames || []).forEach((name, i) => {
+      lines.push('  ' + (i + 1) + '. ' + name);
+    });
+    const firstSheetName = workbook.SheetNames?.[0];
+    if (!firstSheetName) {
+      lines.push('');
+      lines.push('데이터 시트 없음.');
+      return lines.join('\n');
+    }
+    const firstSheet = workbook.Sheets[firstSheetName];
+    const { data: firstData, headers: firstHeaders } = getDataFromSheet(firstSheet);
+    lines.push('');
+    lines.push('첫 번째 시트: "' + firstSheetName + '"');
+    lines.push('  행 수(헤더 제외): ' + firstData.length);
+    lines.push('  컬럼(헤더): ' + firstHeaders.join(' | '));
+    const accountHeader = robustFindHeader(firstHeaders, ['계정과목', '계정명', '계정', 'account']);
+    if (accountHeader) {
+      const uniq = new Set<string>();
+      firstData.forEach(row => {
+        const v = String(row[accountHeader] ?? '').trim();
+        if (v) uniq.add(v);
+      });
+      const arr = Array.from(uniq).slice(0, 15);
+      lines.push('  계정 컬럼 "' + accountHeader + '" 샘플 값: ' + arr.join(', ') + (uniq.size > 15 ? ' ... (총 ' + uniq.size + '개)' : ''));
+    } else {
+      lines.push('  계정 컬럼: 인식 안 됨 (계정과목/계정명/계정 키워드 없음)');
+    }
+    const sampleAccount = accountNames[0] || Array.from(selectedAccounts)[0];
+    if (sampleAccount) {
+      const hasSheet = !!workbook.Sheets[sampleAccount];
+      lines.push('');
+      lines.push('샘플 계정: "' + sampleAccount + '"');
+      lines.push('  이 이름의 시트 존재 여부: ' + (hasSheet ? '예' : '아니오'));
+      if (!hasSheet && accountHeader && firstData.length > 0) {
+        const matchCount = firstData.filter(row => String(row[accountHeader] ?? '').trim() === sampleAccount).length;
+        lines.push('  단일 시트 모드에서 해당 계정 행 수: ' + matchCount);
+      }
+    }
+    if (firstData.length > 0) {
+      lines.push('');
+      lines.push('첫 행 데이터 (컬럼: 값):');
+      const row = firstData[0];
+      firstHeaders.forEach(h => {
+        lines.push('  ' + h + ': ' + (row[h] ?? ''));
+      });
+    }
+    return lines.join('\n');
+  };
+
+  const handleCopyStructure = () => {
+    const text = getExcelStructureText();
+    navigator.clipboard.writeText(text).then(() => {
+      toast({ title: '복사됨', description: '엑셀 구조 요약이 클립보드에 복사되었습니다. 채팅에 붙여넣기 하시면 됩니다.' });
+    }).catch(() => {
+      toast({ title: '복사 실패', variant: 'destructive' });
+    });
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -753,10 +850,15 @@ ${monthlyDataText}
                 매출, 판관비, 제조원가 계정을 선택하고 월별 추이를 시각화합니다.
               </CardDescription>
             </div>
-            <Button variant="ghost" onClick={onBack}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              뒤로가기
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowStructureDialog(true)}>
+                엑셀 구조 보기
+              </Button>
+              <Button variant="ghost" onClick={onBack}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                뒤로가기
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -965,26 +1067,36 @@ ${monthlyDataText}
                     {Array.from({ length: 12 }, (_, i) => (
                       <TableHead key={i} className="text-right">{i + 1}월</TableHead>
                     ))}
+                    <TableHead className="text-right min-w-[100px]">계정별 합계</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {Array.from(selectedAccounts).map(account => (
-                    <TableRow key={account}>
-                      <TableCell className="font-medium">{account}</TableCell>
-                      {Array.from({ length: 12 }, (_, i) => (
-                        <TableCell key={i} className="text-right">
-                          {(monthlyData[account]?.[i + 1] || 0).toLocaleString()}
+                  {Array.from(selectedAccounts).map(account => {
+                    const accountSum = Array.from({ length: 12 }, (_, i) => monthlyData[account]?.[i + 1] || 0).reduce((a, b) => a + b, 0);
+                    return (
+                      <TableRow key={account}>
+                        <TableCell className="font-medium">{account}</TableCell>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <TableCell key={i} className="text-right">
+                            {(monthlyData[account]?.[i + 1] || 0).toLocaleString()}
+                          </TableCell>
+                        ))}
+                        <TableCell className="text-right font-medium">
+                          {accountSum.toLocaleString()}
                         </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
+                      </TableRow>
+                    );
+                  })}
                   <TableRow className="bg-muted font-bold">
-                    <TableCell>합계</TableCell>
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <TableCell key={i} className="text-right">
-                      {(monthlyTotals[i + 1] || 0).toLocaleString()}
+                    <TableCell>월별 합계</TableCell>
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <TableCell key={i} className="text-right">
+                        {(monthlyTotals[i + 1] || 0).toLocaleString()}
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-right">
+                      {Object.values(monthlyTotals).reduce((a, b) => a + b, 0).toLocaleString()}
                     </TableCell>
-                  ))}
                   </TableRow>
                 </TableBody>
               </Table>
@@ -1132,6 +1244,27 @@ ${monthlyDataText}
               <p>• Gemini 2.5 Flash 모델 기준으로 계산됩니다.</p>
               <p>• 무료 티어의 경우 분당 15회 요청 제한이 있습니다.</p>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 엑셀 구조 보기 Dialog — 월별 0원 원인 파악용 */}
+      <Dialog open={showStructureDialog} onOpenChange={setShowStructureDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>엑셀 구조 요약</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            월별 추이 금액이 0원으로 나올 때 원인 파악에 사용합니다. 아래 내용을 복사해 채팅에 붙여넣어 주세요.
+          </p>
+          <pre className="flex-1 overflow-auto rounded bg-muted p-3 text-xs whitespace-pre-wrap font-mono">
+            {getExcelStructureText()}
+          </pre>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={handleCopyStructure}>
+              클립보드에 복사
+            </Button>
+            <Button onClick={() => setShowStructureDialog(false)}>닫기</Button>
           </div>
         </DialogContent>
       </Dialog>

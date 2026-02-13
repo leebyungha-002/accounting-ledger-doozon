@@ -239,7 +239,7 @@ ${tableStr}
         samplingRatio: 100,
         tokensUsed: estimatedTokens + 2000,
         costKRW: actualCost,
-        model: 'gemini-3-pro',
+        model: 'gemini-2.0-flash',
       });
       setUsageSummary(getUsageSummary());
 

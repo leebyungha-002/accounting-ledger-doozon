@@ -145,10 +145,10 @@ Return JSON in the following format:
 Keep the content professional and in Korean. Use markdown for formatting.
 `;
 
-  // Gemini Pro 3.0 정식 → Preview 순, 404 시 대체 모델
+  // 2026년 2월 기준 최신 공식 명칭: gemini-3-pro-preview 우선, 404 시 gemini-3-pro 등 대체
   const modelsToTry = [
-    'gemini-3-pro',             // Gemini Pro 3.0 정식 (최우선)
-    'gemini-3-pro-preview',     // Gemini Pro 3.0 Preview (2순위)
+    'gemini-2.0-flash',         // 비용 절감용 (최우선)
+    'gemini-3-pro',             // 정식명 (404 시 위 preview 사용)
     'gemini-2.5-flash',         // 최신 2.5 Flash
     'gemini-1.5-flash-latest',  // 최신 Flash 모델
     'gemini-1.5-flash',         // 기본 Flash 모델
@@ -190,11 +190,13 @@ Keep the content professional and in Korean. Use markdown for formatting.
       console.log(`✅ ${modelName} 모델로 분석 성공!`);
       return parsed;
     } catch (modelError: any) {
+      console.error('Gemini API Error:', modelError?.message ?? modelError);
       console.warn(`⚠️ ${modelName} 모델 오류:`, modelError.message || modelError);
       lastError = modelError;
       
       // 404 오류인 경우 다음 모델 시도
       if (modelError.message?.includes('404') || modelError.message?.includes('not found') || modelError.status === 404) {
+        console.error('모델명 확인: 최신 명칭 gemini-3-pro-preview, 대안 gemini-3-pro');
         console.log(`⏭️ ${modelName} 모델을 찾을 수 없습니다. 다음 모델로 시도합니다...`);
         continue;
       }
@@ -278,10 +280,10 @@ Return JSON in the following format:
 If none, items should be an empty array.
 `;
 
-  // Gemini Pro 3.0 정식 → Preview 순, 404 시 대체 모델
+  // 비용 절감: gemini-2.0-flash 우선, 404 시 gemini-3-pro 등 대체
   const modelsToTry = [
-    'gemini-3-pro',             // Gemini Pro 3.0 정식 (최우선)
-    'gemini-3-pro-preview',     // Gemini Pro 3.0 Preview (2순위)
+    'gemini-2.0-flash',         // 비용 절감용 (최우선)
+    'gemini-3-pro',             // 정식명 (404 시 위 preview 사용)
     'gemini-2.5-flash',         // 최신 2.5 Flash
     'gemini-1.5-flash-latest',  // 최신 Flash 모델
     'gemini-1.5-flash',         // 기본 Flash 모델
@@ -322,11 +324,13 @@ If none, items should be an empty array.
       console.log(`✅ ${modelName} 모델로 분석 성공!`);
       return parsed;
     } catch (modelError: any) {
+      console.error('Gemini API Error:', modelError?.message ?? modelError);
       console.warn(`⚠️ ${modelName} 모델 오류:`, modelError.message || modelError);
       lastError = modelError;
       
       // 404 오류인 경우 다음 모델 시도
       if (modelError.message?.includes('404') || modelError.message?.includes('not found') || modelError.status === 404) {
+        console.error('모델명 확인: 최신 명칭 gemini-3-pro-preview, 대안 gemini-3-pro');
         console.log(`⏭️ ${modelName} 모델을 찾을 수 없습니다. 다음 모델로 시도합니다...`);
         continue;
       }
@@ -450,7 +454,8 @@ ${topAccounts.map(a => `- ${a.name}: ${a.count}건, 평균 ${Math.round(a.avgAmo
 예: {"suggestedMinAmount": 150000, "reason": "95백분위수 기준으로 상위 5% 항목만 분석하면 약 500건 정도로 적정한 분석량이 됩니다."}
 `;
 
-  const suggestModels = ['gemini-3-pro', 'gemini-3-pro-preview'];
+  // 최신 공식 명칭 우선, 404 시 gemini-3-pro 시도
+  const suggestModels = ['gemini-2.0-flash', 'gemini-3-pro'];
   for (const modelName of suggestModels) {
     try {
       const model = client.getGenerativeModel({ 
@@ -647,10 +652,10 @@ Return JSON in the following format:
 `;
 
   try {
-    // Gemini Pro 3.0 정식 → Preview 순, 404 시 대체 모델
+    // 2026년 2월 기준 최신 공식 명칭: gemini-3-pro-preview 우선, 404 시 gemini-3-pro 등 대체
     const modelsToTry = [
-      'gemini-3-pro',             // Gemini Pro 3.0 정식 (최우선)
-      'gemini-3-pro-preview',     // Gemini Pro 3.0 Preview (2순위)
+      'gemini-2.0-flash',         // 비용 절감용 (최우선)
+      'gemini-3-pro',             // 정식명 (404 시 위 preview 사용)
       'gemini-2.5-flash',         // 최신 2.5 Flash
       'gemini-1.5-flash',         // 대체 - 404 오류 시 자동 대체
       'gemini-2.0-flash-exp',     // 대체 - AdvancedLedgerAnalysis에서 사용
@@ -701,11 +706,13 @@ Return JSON in the following format:
         console.log(`✅ ${modelName} 모델로 분석 성공!`);
         return parsed;
       } catch (modelError: any) {
+        console.error('Gemini API Error:', modelError?.message ?? modelError);
         console.warn(`⚠️ ${modelName} 모델 오류:`, modelError.message || modelError);
         lastError = modelError;
         
         // 404 오류인 경우 다음 모델 시도
         if (modelError.message?.includes('404') || modelError.message?.includes('not found')) {
+          console.error('모델명 확인: 최신 명칭 gemini-3-pro-preview, 대안 gemini-3-pro');
           console.log(`⏭️ ${modelName} 모델을 찾을 수 없습니다. 다음 모델로 시도합니다...`);
           continue;
         }

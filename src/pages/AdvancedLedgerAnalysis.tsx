@@ -793,6 +793,13 @@ const AdvancedLedgerAnalysis = () => {
       return clean.includes('대변') || clean.includes('credit');
     });
 
+    // 차변 헤더가 없을 때만 자동 탐지. 단, 사업자등록번호·코드 등 금액이 아닌 컬럼은 제외
+    const isNonAmountColumn = (cleanKey: string) => {
+      return cleanKey.includes('대변') || cleanKey.includes('credit') || cleanKey.includes('일자') || cleanKey.includes('날짜') ||
+        cleanKey.includes('잔액') || cleanKey.includes('balance') || cleanKey.includes('적요') || cleanKey.includes('거래처') ||
+        cleanKey.includes('코드') || cleanKey.includes('내용') ||
+        cleanKey.includes('사업자등록') || cleanKey.includes('등록번호') || cleanKey.includes('registration') || cleanKey.includes('사업자');
+    };
     let foundDebitHeader = debitHeader;
     if (!foundDebitHeader && currentAccountData.length > 0) {
       const numericColumns = new Map<string, number>();
@@ -800,12 +807,9 @@ const AdvancedLedgerAnalysis = () => {
         Object.entries(row).forEach(([key, value]) => {
           if (key === creditHeader || key === dateHeader) return;
           const cleanKey = key.replace(/\s/g, '').toLowerCase();
-          if (!cleanKey.includes('대변') && !cleanKey.includes('credit') && !cleanKey.includes('일자') && !cleanKey.includes('날짜') &&
-              !cleanKey.includes('잔액') && !cleanKey.includes('balance') && !cleanKey.includes('적요') && !cleanKey.includes('거래처') &&
-              !cleanKey.includes('코드') && !cleanKey.includes('내용')) {
-            const numVal = cleanAmount(value);
-            if (numVal !== 0) numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
-          }
+          if (isNonAmountColumn(cleanKey)) return;
+          const numVal = cleanAmount(value);
+          if (numVal !== 0) numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
         });
       });
       if (numericColumns.size > 0) {
@@ -821,12 +825,9 @@ const AdvancedLedgerAnalysis = () => {
         Object.entries(row).forEach(([key, value]) => {
           if (key === foundDebitHeader || key === dateHeader) return;
           const cleanKey = key.replace(/\s/g, '').toLowerCase();
-          if (!cleanKey.includes('차변') && !cleanKey.includes('debit') && !cleanKey.includes('일자') && !cleanKey.includes('날짜') &&
-              !cleanKey.includes('잔액') && !cleanKey.includes('balance') && !cleanKey.includes('적요') && !cleanKey.includes('거래처') &&
-              !cleanKey.includes('코드') && !cleanKey.includes('내용')) {
-            const numVal = cleanAmount(value);
-            if (numVal !== 0) numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
-          }
+          if (isNonAmountColumn(cleanKey) || cleanKey.includes('차변') || cleanKey.includes('debit')) return;
+          const numVal = cleanAmount(value);
+          if (numVal !== 0) numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
         });
       });
       if (numericColumns.size > 0) {
@@ -857,11 +858,28 @@ const AdvancedLedgerAnalysis = () => {
       return { error: true, dateHeader, finalDebitHeader, finalCreditHeaderCorrected, headers } as const;
     }
 
+    // 날짜 정규화: Date 객체가 아니면 문자열(YYYY/MM/DD 등) 또는 Excel 시리얼 숫자로 파싱
+    const toDate = (val: any): Date | null => {
+      if (val instanceof Date && !isNaN(val.getTime())) return val;
+      if (typeof val === 'number' && val > 1 && val < 50000) {
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const d = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000);
+        return !isNaN(d.getTime()) ? d : null;
+      }
+      if (typeof val === 'string' && val.trim()) {
+        const d = new Date(val.trim().replace(/\s/g, ''));
+        if (!isNaN(d.getTime())) return d;
+        const p = parseDate(val);
+        if (p) return p;
+      }
+      return null;
+    };
+
     const monthlyData = new Map<string, { debit: number; credit: number }>();
     currentAccountData.forEach(row => {
-      const date = row[dateHeader];
-      if (!(date instanceof Date)) return;
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const dateVal = toDate(row[dateHeader]);
+      if (!dateVal) return;
+      const monthKey = `${dateVal.getFullYear()}-${String(dateVal.getMonth() + 1).padStart(2, '0')}`;
       const debit = finalDebitHeader ? cleanAmount(row[finalDebitHeader]) : 0;
       const credit = finalCreditHeaderCorrected ? cleanAmount(row[finalCreditHeaderCorrected]) : 0;
       if (!monthlyData.has(monthKey)) monthlyData.set(monthKey, { debit: 0, credit: 0 });
@@ -1211,14 +1229,18 @@ const AdvancedLedgerAnalysis = () => {
             <div className="flex items-end gap-4">
               <div className="flex-1 space-y-2">
                 <label className="text-sm font-medium">계정과목</label>
-                <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-                  <SelectTrigger>
-                    <SelectValue />
+                <Select value={selectedAccount || undefined} onValueChange={(v) => setSelectedAccount(v || '')}>
+                  <SelectTrigger className="w-full max-w-md">
+                    <SelectValue placeholder="계정과목을 선택하세요..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {accountNames.map(name => (
-                      <SelectItem key={name} value={name}>{name}</SelectItem>
-                    ))}
+                    {accountNames.length === 0 ? (
+                      <div className="py-4 px-3 text-sm text-muted-foreground text-center">불러온 계정이 없습니다. 파일을 먼저 업로드하세요.</div>
+                    ) : (
+                      accountNames.map(name => (
+                        <SelectItem key={name} value={name}>{name}</SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -1249,6 +1271,12 @@ const AdvancedLedgerAnalysis = () => {
                       return clean.includes('대변') || clean.includes('credit');
                     });
                     
+                    // 금액이 아닌 컬럼 제외 (사업자등록번호·코드 등이 차변/대변으로 선택되지 않도록)
+                    const isNonAmountCol = (cleanKey: string) =>
+                      cleanKey.includes('대변') || cleanKey.includes('credit') || cleanKey.includes('일자') || cleanKey.includes('날짜') ||
+                      cleanKey.includes('잔액') || cleanKey.includes('balance') || cleanKey.includes('적요') || cleanKey.includes('거래처') ||
+                      cleanKey.includes('코드') || cleanKey.includes('내용') ||
+                      cleanKey.includes('사업자등록') || cleanKey.includes('등록번호') || cleanKey.includes('registration') || cleanKey.includes('사업자');
                     // 차변 헤더 자동 탐지 (화면과 동일)
                     let foundDebitHeader = debitHeader;
                     if (!foundDebitHeader && currentAccountData.length > 0) {
@@ -1257,25 +1285,16 @@ const AdvancedLedgerAnalysis = () => {
                         Object.entries(row).forEach(([key, value]) => {
                           if (key === creditHeader || key === dateHeader) return;
                           const cleanKey = key.replace(/\s/g, '').toLowerCase();
-                          if (!cleanKey.includes('대변') && !cleanKey.includes('credit') && 
-                              !cleanKey.includes('일자') && !cleanKey.includes('날짜') &&
-                              !cleanKey.includes('잔액') && !cleanKey.includes('balance') &&
-                              !cleanKey.includes('적요') && !cleanKey.includes('거래처') &&
-                              !cleanKey.includes('코드') && !cleanKey.includes('내용')) {
-                            const numVal = cleanAmount(value);
-                            if (numVal !== 0) {
-                              numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
-                            }
-                          }
+                          if (isNonAmountCol(cleanKey)) return;
+                          const numVal = cleanAmount(value);
+                          if (numVal !== 0) numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
                         });
                       });
                       if (numericColumns.size > 0) {
-                        const sortedColumns = Array.from(numericColumns.entries())
-                          .sort((a, b) => b[1] - a[1]);
+                        const sortedColumns = Array.from(numericColumns.entries()).sort((a, b) => b[1] - a[1]);
                         foundDebitHeader = sortedColumns[0][0];
                       }
                     }
-                    
                     // 대변 헤더 자동 탐지 (화면과 동일)
                     let foundCreditHeader = creditHeader;
                     if (!foundCreditHeader && currentAccountData.length > 0) {
@@ -1284,21 +1303,13 @@ const AdvancedLedgerAnalysis = () => {
                         Object.entries(row).forEach(([key, value]) => {
                           if (key === foundDebitHeader || key === dateHeader) return;
                           const cleanKey = key.replace(/\s/g, '').toLowerCase();
-                          if (!cleanKey.includes('차변') && !cleanKey.includes('debit') && 
-                              !cleanKey.includes('일자') && !cleanKey.includes('날짜') &&
-                              !cleanKey.includes('잔액') && !cleanKey.includes('balance') &&
-                              !cleanKey.includes('적요') && !cleanKey.includes('거래처') &&
-                              !cleanKey.includes('코드') && !cleanKey.includes('내용')) {
-                            const numVal = cleanAmount(value);
-                            if (numVal !== 0) {
-                              numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
-                            }
-                          }
+                          if (isNonAmountCol(cleanKey) || cleanKey.includes('차변') || cleanKey.includes('debit')) return;
+                          const numVal = cleanAmount(value);
+                          if (numVal !== 0) numericColumns.set(key, (numericColumns.get(key) || 0) + Math.abs(numVal));
                         });
                       });
                       if (numericColumns.size > 0) {
-                        const sortedColumns = Array.from(numericColumns.entries())
-                          .sort((a, b) => b[1] - a[1]);
+                        const sortedColumns = Array.from(numericColumns.entries()).sort((a, b) => b[1] - a[1]);
                         foundCreditHeader = sortedColumns[0][0];
                       }
                     }
@@ -1327,13 +1338,28 @@ const AdvancedLedgerAnalysis = () => {
                     }
                     
                     if (dateHeader && (foundDebitHeader || foundCreditHeader)) {
+                      const toDateDownload = (val: any): Date | null => {
+                        if (val instanceof Date && !isNaN(val.getTime())) return val;
+                        if (typeof val === 'number' && val > 1 && val < 50000) {
+                          const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+                          const d = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000);
+                          return !isNaN(d.getTime()) ? d : null;
+                        }
+                        if (typeof val === 'string' && val.trim()) {
+                          const d = new Date(val.trim().replace(/\s/g, ''));
+                          if (!isNaN(d.getTime())) return d;
+                          const p = parseDate(val);
+                          if (p) return p;
+                        }
+                        return null;
+                      };
                       const monthlyDataMap = new Map<string, { debit: number; credit: number }>();
                       
                       currentAccountData.forEach(row => {
-                        const date = row[dateHeader];
-                        if (!(date instanceof Date)) return;
+                        const dateVal = toDateDownload(row[dateHeader]);
+                        if (!dateVal) return;
                         
-                        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                        const monthKey = `${dateVal.getFullYear()}-${String(dateVal.getMonth() + 1).padStart(2, '0')}`;
                         const debit = foundDebitHeader ? cleanAmount(row[foundDebitHeader]) : 0;
                         const credit = foundCreditHeader ? cleanAmount(row[foundCreditHeader]) : 0;
                         
@@ -1783,7 +1809,7 @@ ${JSON.stringify(sampledData, null, 2)}
                     samplingRatio: (sampledData.length / totalCount) * 100,
                     tokensUsed: estimatedTokens + 2000, // 입력 + 출력 추정
                     costKRW: actualCost,
-                    model: 'gemini-3-pro',
+                    model: 'gemini-2.0-flash',
                   });
                   refreshUsageSummary();
                   

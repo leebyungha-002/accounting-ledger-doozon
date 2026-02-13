@@ -270,8 +270,8 @@ export const testApiKey = async (apiKey?: string): Promise<{ valid: boolean; mes
       };
     }
     
-    // Gemini Pro 3.0 정식 우선, 404 시 Preview로 테스트
-    const testModels = ['gemini-3-pro', 'gemini-3-pro-preview'];
+    // 2026년 2월 기준 최신 공식 명칭 우선, 404 시 gemini-3-pro 시도
+    const testModels = ['gemini-2.0-flash', 'gemini-3-pro'];
     let lastTestError: any = null;
     
     for (const testModel of testModels) {
@@ -299,6 +299,7 @@ export const testApiKey = async (apiKey?: string): Promise<{ valid: boolean; mes
         };
       } catch (error: any) {
         lastTestError = error;
+        console.error('Gemini API Error:', error?.message ?? error);
         const errorDetails: any = {
           message: error.message,
           status: error.status,
@@ -662,10 +663,10 @@ export const analyzeWithFlash = async (
   
     console.log('✅ Gemini 클라이언트 생성 성공');
   
-  // Gemini Pro 3.0 정식 → Gemini Pro 3.0 Preview 순으로 사용, 404 시 대체 모델 폴백
+  // 2026년 2월 기준 최신 공식 명칭: gemini-3-pro-preview 우선, 404 시 gemini-3-pro 등 대체
   const modelsToTry = [
-    'gemini-3-pro',           // Gemini Pro 3.0 정식 (최우선)
-    'gemini-3-pro-preview',   // Gemini Pro 3.0 Preview (2순위)
+    'gemini-2.0-flash',       // 비용 절감용 (최우선)
+    'gemini-3-pro',           // 정식명 사용 시: 404면 위 preview 사용
     'gemini-2.5-flash',       // 최신 2.5 Flash
     'gemini-1.5-flash',       // 안정적인 Flash 모델 (대체)
     'gemini-2.0-flash-exp',   // AdvancedLedgerAnalysis에서 사용
@@ -677,9 +678,9 @@ export const analyzeWithFlash = async (
   let lastError: any = null;
   const maxRetries = 0; // 할당량 절약: 재시도 없음 (첫 번째 모델만 시도)
   
-  const primaryModel = modelsToTry[0]; // gemini-3-pro (Gemini Pro 3.0 정식)
+  const primaryModel = modelsToTry[0]; // gemini-3-pro-preview (최신 공식 명칭)
   
-  console.log(`🎯 모델 선택: ${primaryModel} (Gemini Pro 3.0 정식) → 실패 시 ${modelsToTry[1]} (Preview)`);
+  console.log(`🎯 모델 선택: ${primaryModel} → 실패 시 ${modelsToTry[1]} (gemini-3-pro) 등 순차 시도`);
   console.log(`💡 404 오류 발생 시 자동으로 다음 모델로 대체됩니다.`);
   
   // 429 오류 자동 재시도 로직
@@ -730,6 +731,7 @@ export const analyzeWithFlash = async (
       getApiCallTracker().endCall(callId);
       return text;
     } catch (error: any) {
+    console.error('Gemini API Error:', error?.message ?? error);
     const msg = error.message?.toLowerCase() || '';
     const statusCode = error.status;
     
@@ -917,26 +919,26 @@ export const analyzeWithFlash = async (
       );
     }
     
-    // 404 오류는 모델을 찾을 수 없음
+    // 404 오류는 모델을 찾을 수 없음 (2026년 2월 모델 명칭 업데이트 시 자주 발생)
     if (statusCode === 404) {
       console.error(`❌ ${primaryModel} 모델을 찾을 수 없음 (404 Not Found)`);
-      console.error('🔍 어제와 오늘의 차이 분석:', {
-        '어제': '정상 작동',
-        '오늘': '404 Not Found 오류 발생',
-        '가능한 원인': 'Google이 모델 이름을 변경했거나 모델을 더 이상 사용할 수 없게 함'
+      console.error('Gemini API Error: 모델명 확인 필요. 최신 명칭: gemini-3-pro-preview, 대안: gemini-3-pro');
+      console.error('🔍 확인:', {
+        '사용한 모델': primaryModel,
+        '가능한 원인': 'Google 모델 명칭 변경 또는 API Key 권한',
+        '확인 링크': 'https://aistudio.google.com'
       });
       
       throw new Error(
         `❌ ${primaryModel} 모델을 찾을 수 없음 (404 Not Found)\n\n` +
-        `⚠️ 어제까지 잘 작동했던 모델이 오늘 갑자기 찾을 수 없습니다.\n\n` +
+        `⚠️ 사용한 모델명: "${primaryModel}"\n\n` +
         `🔍 가능한 원인:\n` +
-        `1. Google이 모델 이름을 변경함 (예: gemini-1.5-flash → gemini-2.0-flash)\n` +
-        `2. 모델이 더 이상 사용할 수 없게 됨\n` +
-        `3. API Key에 해당 모델 접근 권한이 없음\n\n` +
+        `1. 2026년 2월 기준 Google 모델 명칭이 변경됨 (최신: gemini-3-pro-preview, 대안: gemini-3-pro)\n` +
+        `2. API Key에 해당 모델 접근 권한이 없음\n\n` +
         `✅ 해결 방법:\n` +
-        `1. Google AI Studio에서 최신 모델 이름 확인: https://aistudio.google.com\n` +
-        `2. Google Cloud Console에서 API Key 권한 확인\n` +
-        `3. 새 API Key 발급 후 재시도`
+        `1. Google AI Studio에서 사용 가능한 모델 확인: https://aistudio.google.com\n` +
+        `2. 코드 내 모델명을 gemini-3-pro-preview 또는 gemini-3-pro로 수정 후 재시도\n` +
+        `3. API Key 권한 및 빌링 설정 확인`
       );
     }
     
@@ -963,6 +965,7 @@ export const analyzeWithFlash = async (
         console.log(`✅ ${fallbackModel} 모델 성공! 응답 길이:`, text.length);
         return text;
       } catch (fallbackError: any) {
+        console.error('Gemini API Error:', fallbackError?.message ?? fallbackError);
         console.error(`❌ ${fallbackModel} 모델도 실패:`, fallbackError.message);
         lastError = fallbackError;
         // 다음 모델 시도
@@ -1000,11 +1003,20 @@ export const analyzeWithPro = async (
   if (!client) {
     throw new Error('API Key가 설정되지 않았습니다. 설정 버튼을 클릭하여 Google Gemini API Key를 입력해주세요.');
   }
-  
-  const model = client.getGenerativeModel({ model: 'gemini-3-pro' });
-  const result = await model.generateContent(prompt);
-  const response = result.response;
-  return response.text();
+
+  try {
+    // 최신 공식 명칭: gemini-3-pro-preview (404 시 코드에서 gemini-3-pro 로 변경 시도)
+    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    return response.text();
+  } catch (error: any) {
+    console.error('Gemini API Error:', error?.message ?? error);
+    if (error?.status === 404 || (error?.message ?? '').includes('404')) {
+      console.error('모델명 확인: 최신 명칭 gemini-3-pro-preview, 대안 gemini-3-pro');
+    }
+    throw error;
+  }
 };
 
 /**

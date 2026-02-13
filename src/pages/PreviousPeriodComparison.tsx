@@ -237,8 +237,8 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
           const credit = previousCreditHeader ? cleanAmount(row[previousCreditHeader]) : 0;
           vendorData.previousDebit += debit;
           vendorData.previousCredit += credit;
-          
-          if (debit > 0 || credit > 0) {
+          // 마이너스 금액만 있는 행도 집계 건수에 포함
+          if (debit !== 0 || credit !== 0) {
             processedCount++;
           }
         });
