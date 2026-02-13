@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Search, Download, Check, ChevronsUpDown } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { findDebitCreditHeaders, robustFindHeader } from '@/lib/headerUtils';
 import { maskAccountNumbersInRows } from '@/lib/anonymization';
@@ -44,8 +45,44 @@ const parseDate = (value: any): Date | null => {
   if (value instanceof Date && !isNaN(value.getTime())) {
     return value;
   }
+  if (value == null || value === '') return null;
   if (typeof value === 'string') {
-    const match = value.match(/^(?<month>\d{1,2})[-/](?<day>\d{1,2})$/);
+    const trimmed = String(value).trim();
+    if (!trimmed) return null;
+    // YYYY-MM-DD, YYYY/MM/DD
+    const ymd = trimmed.match(/^(?<y>\d{4})[-/](?<month>\d{1,2})[-/](?<day>\d{1,2})$/);
+    if (ymd && ymd.groups) {
+      const y = parseInt(ymd.groups.y, 10);
+      const month = parseInt(ymd.groups.month, 10) - 1;
+      const day = parseInt(ymd.groups.day, 10);
+      const d = new Date(y, month, day);
+      if (!isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === month && d.getDate() === day) {
+        return d;
+      }
+    }
+    // YYYY.MM.DD
+    const ymdDot = trimmed.match(/^(?<y>\d{4})\.(?<month>\d{1,2})\.(?<day>\d{1,2})$/);
+    if (ymdDot && ymdDot.groups) {
+      const y = parseInt(ymdDot.groups.y, 10);
+      const month = parseInt(ymdDot.groups.month, 10) - 1;
+      const day = parseInt(ymdDot.groups.day, 10);
+      const d = new Date(y, month, day);
+      if (!isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === month && d.getDate() === day) {
+        return d;
+      }
+    }
+    // YYYYMMDD (8자리)
+    if (/^\d{8}$/.test(trimmed)) {
+      const y = parseInt(trimmed.slice(0, 4), 10);
+      const month = parseInt(trimmed.slice(4, 6), 10) - 1;
+      const day = parseInt(trimmed.slice(6, 8), 10);
+      const d = new Date(y, month, day);
+      if (!isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === month && d.getDate() === day) {
+        return d;
+      }
+    }
+    // MM-DD, MM/DD (당해)
+    const match = trimmed.match(/^(?<month>\d{1,2})[-/](?<day>\d{1,2})$/);
     if (match && match.groups) {
       const currentYear = new Date().getFullYear();
       const month = parseInt(match.groups.month, 10) - 1;
@@ -233,10 +270,16 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
   const [displayMode, setDisplayMode] = useState<'detail' | 'monthly' | 'vendor'>('detail');
   const [amountFilter, setAmountFilter] = useState<'all' | 'debit' | 'credit'>('all');
   const [selectedVendorForDrilldown, setSelectedVendorForDrilldown] = useState<string | null>(null);
+  const [monthlyDrilldown, setMonthlyDrilldown] = useState<{ month: string; side: 'debit' | 'credit'; vendor?: string } | null>(null);
+
+  // 복수 입력 시 콤보 입력란에는 '마지막 세그먼트'만 표시 (쉼표 입력 시 '찾을 수 없습니다' 방지)
+  const accountInputValue = (selectedAccount.split(',').pop() ?? '').trim();
+  const vendorInputValue = (searchVendor.split(',').pop() ?? '').trim();
 
   // 표시 방식 변경 시 드릴다운 초기화
   useEffect(() => {
     setSelectedVendorForDrilldown(null);
+    setMonthlyDrilldown(null);
   }, [displayMode]);
 
   const allData = useMemo(() => {
@@ -350,63 +393,229 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       .sort((a, b) => (b.차변 + b.대변) - (a.차변 + a.대변));
   }, [searchResults, displayMode]);
 
-  // 월합계 데이터 계산
+  // 월합계 데이터 계산 — 거래처별로 구분
   const monthlyData = useMemo(() => {
     if (displayMode !== 'monthly' || searchResults.length === 0) return null;
 
     const headers = Object.keys(searchResults[0] || {});
-    const dateHeader = headers.find(h => 
-      h.includes('일자') || h.includes('날짜')
-    );
+    const dateHeader = robustFindHeader(headers, DATE_KEYWORDS) ||
+      headers.find((h: string) => h.includes('일자') || h.includes('날짜') || h.toLowerCase().includes('date'));
+    const vendorHeader = robustFindHeader(headers, VENDOR_KEYWORDS) ||
+      headers.find((h: string) => h.includes('거래처') || h.toLowerCase().includes('vendor'));
     const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, searchResults, dateHeader);
 
     if (!dateHeader) return null;
 
-    const monthlyMap = new Map<string, { 
-      debit: number; 
-      credit: number; 
-      count: number;
-      accounts: Set<string>;
-    }>();
+    const vendorMonthMap = new Map<string, Map<string, { debit: number; credit: number; count: number }>>();
 
     searchResults.forEach(row => {
-      const date = row[dateHeader];
+      let date = row[dateHeader];
+      if (!(date instanceof Date)) date = parseDate(date);
       if (!(date instanceof Date)) return;
 
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const vendor = vendorHeader ? String(row[vendorHeader] || '').trim() || '(거래처 없음)' : '(거래처 없음)';
       const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
       const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
-      const account = String(row['계정과목'] || '');
 
-      if (!monthlyMap.has(monthKey)) {
-        monthlyMap.set(monthKey, { debit: 0, credit: 0, count: 0, accounts: new Set() });
+      if (!vendorMonthMap.has(vendor)) {
+        vendorMonthMap.set(vendor, new Map());
       }
-
-      const monthly = monthlyMap.get(monthKey)!;
-      monthly.debit += debit;
-      monthly.credit += credit;
-      monthly.count++;
-      if (account) monthly.accounts.add(account);
+      const monthMap = vendorMonthMap.get(vendor)!;
+      if (!monthMap.has(monthKey)) {
+        monthMap.set(monthKey, { debit: 0, credit: 0, count: 0 });
+      }
+      const data = monthMap.get(monthKey)!;
+      data.debit += debit;
+      data.credit += credit;
+      data.count++;
     });
 
-    return Array.from(monthlyMap.entries())
-      .map(([month, data]) => ({
-        월: month,
-        차변: data.debit,
-        대변: data.credit,
-        잔액: data.debit - data.credit,
-        건수: data.count,
-        계정수: data.accounts.size,
-      }))
-      .sort((a, b) => a.월.localeCompare(b.월));
+    const rows: { 거래처: string; 월: string; 차변: number; 대변: number; 잔액: number; 건수: number; isSubtotal?: boolean; isTotal?: boolean }[] = [];
+    const vendors = Array.from(vendorMonthMap.keys()).sort();
+    let grandDebit = 0, grandCredit = 0, grandCount = 0;
+
+    vendors.forEach(v => {
+      const monthMap = vendorMonthMap.get(v)!;
+      const months = Array.from(monthMap.keys()).sort();
+      let subDebit = 0, subCredit = 0, subCount = 0;
+      months.forEach(monthKey => {
+        const d = monthMap.get(monthKey)!;
+        rows.push({
+          거래처: v,
+          월: monthKey,
+          차변: d.debit,
+          대변: d.credit,
+          잔액: d.debit - d.credit,
+          건수: d.count,
+        });
+        subDebit += d.debit;
+        subCredit += d.credit;
+        subCount += d.count;
+      });
+      rows.push({
+        거래처: v,
+        월: '소계',
+        차변: subDebit,
+        대변: subCredit,
+        잔액: subDebit - subCredit,
+        건수: subCount,
+        isSubtotal: true,
+      });
+      grandDebit += subDebit;
+      grandCredit += subCredit;
+      grandCount += subCount;
+    });
+
+    rows.push({
+      거래처: '',
+      월: '합계',
+      차변: grandDebit,
+      대변: grandCredit,
+      잔액: grandDebit - grandCredit,
+      건수: grandCount,
+      isTotal: true,
+    });
+
+    return rows;
   }, [searchResults, displayMode]);
 
+  // 월합계에서 차변/대변 클릭 시 해당 월·해당 측(·거래처) 상세 내역
+  const monthlyDrilldownRows = useMemo(() => {
+    if (!monthlyDrilldown || searchResults.length === 0) return [];
+    const headers = Object.keys(searchResults[0] || {});
+    const dateHeader = robustFindHeader(headers, DATE_KEYWORDS) ||
+      headers.find((h: string) => h.includes('일자') || h.includes('날짜') || h.toLowerCase().includes('date'));
+    const vendorHeader = robustFindHeader(headers, VENDOR_KEYWORDS) ||
+      headers.find((h: string) => h.includes('거래처') || h.toLowerCase().includes('vendor'));
+    const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, searchResults, dateHeader);
+    if (!dateHeader) return [];
+    const isMonthKey = /^\d{4}-\d{2}$/.test(monthlyDrilldown.month);
+    return searchResults.filter(row => {
+      if (monthlyDrilldown.vendor !== undefined && monthlyDrilldown.vendor !== '' && vendorHeader) {
+        const rowVendor = String(row[vendorHeader] || '').trim();
+        if (rowVendor !== monthlyDrilldown.vendor) return false;
+      }
+      if (!isMonthKey) return false;
+      const [y, m] = monthlyDrilldown.month.split('-').map(Number);
+      let date = row[dateHeader];
+      if (!(date instanceof Date)) date = parseDate(date);
+      if (!(date instanceof Date)) return false;
+      if (date.getFullYear() !== y || date.getMonth() + 1 !== m) return false;
+      const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
+      const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
+      if (monthlyDrilldown.side === 'debit') return debit !== 0;
+      return credit !== 0;
+    });
+  }, [monthlyDrilldown, searchResults]);
+
+  // 월계/누계 행 여부
+  const isMonthlyOrCumulativeRow = (row: LedgerRow): boolean =>
+    Object.values(row).some(val => {
+      if (val === null || val === undefined) return false;
+      const str = String(val).trim();
+      const normalized = str.replace(/\s/g, '');
+      return normalized.includes('월계') || normalized.includes('누계') ||
+        normalized.includes('[월계]') || normalized.includes('[누계]') ||
+        normalized === '월계' || normalized === '누계' ||
+        str.includes('[ 월계 ]') || str.includes('[ 누계 ]') ||
+        str.includes('[월 계]') || str.includes('[누 계]');
+    });
+
+  // 행에서 거래처 값 추출 (시트별 헤더가 달라도 공통 키 후보 검사)
+  const getVendorFromRow = (row: LedgerRow): string => {
+    const keys = Object.keys(row);
+    const h = keys.find(k =>
+      k === '거래처명' || (k && (k.includes('거래처') || k.includes('업체') || k.includes('회사') ||
+        k.toLowerCase().includes('vendor') || k.toLowerCase().includes('customer')))
+    );
+    return h ? String(row[h] ?? '').trim() : '';
+  };
+
+  // 복수 계정 + 복수 거래처 선택 시: 계정별 → 거래처별 그룹 및 소계
+  const groupedByAccountAndVendor = useMemo(() => {
+    const accounts = parseMultiInput(selectedAccount);
+    const vendors = parseMultiInput(searchVendor);
+    if (accounts.length <= 1 || vendors.length <= 1 || searchResults.length === 0) return null;
+
+    const headers = Object.keys(searchResults[0] || {});
+    const dateHeader = robustFindHeader(headers, DATE_KEYWORDS) ||
+      headers.find((h: string) => h.includes('일자') || h.includes('날짜') || h.toLowerCase().includes('date'));
+    const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, searchResults, dateHeader);
+
+    const filtered = searchResults.filter(row => !isMonthlyOrCumulativeRow(row));
+    const accountOrder: string[] = [];
+    const byAccount = new Map<string, {
+      vendorOrder: string[];
+      byVendor: Map<string, { rows: LedgerRow[]; debit: number; credit: number; count: number }>;
+      debit: number;
+      credit: number;
+      count: number;
+    }>();
+
+    let grandDebit = 0, grandCredit = 0, grandCount = 0;
+
+    filtered.forEach(row => {
+      const account = String(row['계정과목'] ?? '').trim() || '(계정 없음)';
+      const vendor = getVendorFromRow(row) || '(거래처 없음)';
+      const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
+      const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
+
+      if (!byAccount.has(account)) {
+        accountOrder.push(account);
+        byAccount.set(account, {
+          vendorOrder: [],
+          byVendor: new Map(),
+          debit: 0,
+          credit: 0,
+          count: 0,
+        });
+      }
+      const accData = byAccount.get(account)!;
+      if (!accData.byVendor.has(vendor)) {
+        accData.vendorOrder.push(vendor);
+        accData.byVendor.set(vendor, { rows: [], debit: 0, credit: 0, count: 0 });
+      }
+      const venData = accData.byVendor.get(vendor)!;
+      venData.rows.push(row);
+      venData.debit += debit;
+      venData.credit += credit;
+      venData.count += 1;
+      accData.debit += debit;
+      accData.credit += credit;
+      accData.count += 1;
+      grandDebit += debit;
+      grandCredit += credit;
+      grandCount += 1;
+    });
+
+    return {
+      accountOrder,
+      byAccount,
+      grandDebit,
+      grandCredit,
+      grandCount,
+      headers: headers.filter(k => !k.includes('잔액') && !k.toLowerCase().includes('balance')),
+      debitHeader: debitHeader ?? null,
+      creditHeader: creditHeader ?? null,
+    };
+  }, [searchResults, selectedAccount, searchVendor]);
+
+  // 쉼표로 구분된 복수 값 파싱 (앞뒤 공백 제거, 빈 문자열 제외)
+  const parseMultiInput = (input: string): string[] =>
+    (input || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
   const handleSearch = () => {
-    // 계정명이 선택되지 않았을 때, 거래처나 적요 중 하나라도 입력되어야 검색 가능
-    if (!selectedAccount && !searchVendor && !searchDescription) {
+    const selectedAccountsArray = parseMultiInput(selectedAccount);
+    const searchVendorsArray = parseMultiInput(searchVendor);
+
+    if (selectedAccountsArray.length === 0 && searchVendorsArray.length === 0 && !searchDescription) {
       toast({
         title: '검색 조건 오류',
-        description: '계정명이 선택되지 않았을 경우, 거래처나 적요 중 하나 이상을 입력해주세요.',
+        description: '계정명, 거래처, 적요 중 하나 이상을 입력해주세요. 계정/거래처는 쉼표로 구분해 복수 입력 가능합니다.',
         variant: 'destructive',
       });
       return;
@@ -414,41 +623,64 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
 
     let results: LedgerRow[] = [];
 
-    const accountsToSearch = selectedAccount ? [selectedAccount] : accountNames;
+    // 복수 계정: 입력된 항목과 일치·포함되는 시트만 검색 (비어 있으면 전체)
+    const accountsToSearch =
+      selectedAccountsArray.length === 0
+        ? accountNames
+        : accountNames.filter(an => {
+            const a = an.toLowerCase();
+            return selectedAccountsArray.some(sa => {
+              const s = sa.trim().toLowerCase();
+              return a === s || a.includes(s) || s.includes(a);
+            });
+          });
+
+    if (accountsToSearch.length === 0) {
+      toast({
+        title: '검색 조건 오류',
+        description: '입력한 계정명과 일치하는 계정이 없습니다. 계정명을 확인하거나 쉼표로 구분해 입력해주세요.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     accountsToSearch.forEach(accountName => {
       const sheet = workbook.Sheets[accountName];
       const { data, headers } = getDataFromSheet(sheet);
 
-      const vendorHeader = robustFindHeader(headers, VENDOR_KEYWORDS);
+      const vendorHeader =
+        headers.find((h: string) => (h && (h === '거래처명' || h.includes('거래처명')))) ||
+        robustFindHeader(headers, VENDOR_KEYWORDS) ||
+        headers.find((h: string) => h && (h.includes('거래처') || h.toLowerCase().includes('vendor')));
       const descHeader = robustFindHeader(headers, DESCRIPTION_KEYWORDS);
       const dateHeader = robustFindHeader(headers, DATE_KEYWORDS);
       const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, data, dateHeader);
 
-      // 디버깅: 거래처 검색 시 로그 출력
-      if (searchVendor && vendorHeader) {
-        console.log(`🔍 [${accountName}] 거래처 헤더: "${vendorHeader}", 검색어: "${searchVendor}"`);
-        console.log(`🔍 [${accountName}] 데이터 건수: ${data.length}`);
-      }
+      // 거래처를 입력했는데 이 시트에 거래처 컬럼이 없으면 필터 불가 → 해당 시트 행은 제외
+      if (searchVendorsArray.length > 0 && !vendorHeader) return;
 
       data.forEach(row => {
         let match = true;
 
-        // 거래처 필터
-        if (searchVendor && vendorHeader) {
+        // 거래처 필터: 전체 검색어 우선(쉼표 포함 이름 ex. "GRAPHY SMA, INC"), 그 다음 세그먼트 중 긴 것만 매칭(짧은 "INC" 등으로 타 회사 제외)
+        if (searchVendorsArray.length > 0 && vendorHeader) {
           const vendor = String(row[vendorHeader] || '').trim();
-          const searchTerm = searchVendor.trim();
-          // 대소문자 구분 없이 부분 일치 검색
-          const vendorLower = vendor.toLowerCase();
-          const searchLower = searchTerm.toLowerCase();
-          if (!vendorLower.includes(searchLower)) {
-            match = false;
-          } else {
-            // 매칭된 경우 디버깅 로그 (처음 몇 개만)
-            if (results.length < 5) {
-              console.log(`✅ 매칭 발견: "${vendor}" (검색어: "${searchTerm}")`);
-            }
+          const vendorLower = vendor.toLowerCase().replace(/\s+/g, ' ');
+          const fullSearch = searchVendor.trim().toLowerCase().replace(/\s+/g, ' ');
+          const normalizedVendor = vendorLower.replace(/\s/g, '');
+          let matchesVendor = false;
+          if (fullSearch && (vendorLower.includes(fullSearch) || normalizedVendor.includes(fullSearch.replace(/\s/g, '')))) {
+            matchesVendor = true;
           }
+          if (!matchesVendor) {
+            matchesVendor = searchVendorsArray.some(sv => {
+              const term = sv.trim().toLowerCase();
+              if (!term) return false;
+              if (term.length < 4) return false;
+              return vendorLower.includes(term) || normalizedVendor.includes(term.replace(/\s/g, ''));
+            });
+          }
+          if (!matchesVendor) match = false;
         }
 
         // 적요 필터
@@ -544,8 +776,12 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     const wb = XLSX.utils.book_new();
     
     if (displayMode === 'monthly' && monthlyData) {
-      // 월합계 다운로드
-      const ws = XLSX.utils.json_to_sheet(monthlyData);
+      // 월합계 다운로드 — 계정명 컬럼 추가
+      const accountLabel = parseMultiInput(selectedAccount).length > 0
+        ? parseMultiInput(selectedAccount).join(', ')
+        : '전체';
+      const monthlyWithAccount = monthlyData.map(row => ({ 계정명: accountLabel, ...row }));
+      const ws = XLSX.utils.json_to_sheet(monthlyWithAccount);
       XLSX.utils.book_append_sheet(wb, ws, '월합계');
       XLSX.writeFile(wb, `거래검색_월합계_${new Date().toISOString().split('T')[0]}.xlsx`);
     } else if (displayMode === 'vendor' && vendorData) {
@@ -573,9 +809,12 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
         return name.replace(/[<>:"/\\|?*]/g, '_').trim();
       };
       
+      const parsedAccounts = parseMultiInput(selectedAccount);
       let accountNameForFile = '';
-      if (selectedAccount) {
-        accountNameForFile = sanitizeFileName(selectedAccount);
+      if (parsedAccounts.length === 1) {
+        accountNameForFile = sanitizeFileName(parsedAccounts[0]);
+      } else if (parsedAccounts.length > 1) {
+        accountNameForFile = '다중계정';
       } else if (searchResults.length > 0) {
         // 검색 결과에서 고유한 계정명 추출
         const uniqueAccounts = new Set(
@@ -626,7 +865,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* 계정 선택 - 자동완성 */}
             <div className="space-y-2">
-              <Label>계정과목 (선택사항 - 미선택 시 거래처/적요 필수)</Label>
+              <Label>계정과목 (쉼표로 구분해 복수 입력 가능, 미선택 시 거래처/적요 필수)</Label>
               <Popover open={accountComboboxOpen} onOpenChange={setAccountComboboxOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -635,41 +874,58 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                     aria-expanded={accountComboboxOpen}
                     className="w-full justify-between"
                   >
-                    {selectedAccount || "계정을 선택하거나 입력하세요"}
+                    <span className="truncate text-left">{selectedAccount.replace(/,\s*$/, '') || "계정을 선택하거나 입력 (예: 계정1, 계정2)"}</span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[400px] p-0" align="start">
                   <Command>
-                    <CommandInput 
-                      placeholder="계정명 검색..." 
-                      value={selectedAccount}
-                      onValueChange={setSelectedAccount}
+                    <CommandInput
+                      placeholder="계정명 검색 또는 쉼표로 복수 입력..."
+                      value={accountInputValue}
+                      onValueChange={(val) => {
+                        const parts = selectedAccount.split(',').map(s => s.trim());
+                        if (val.includes(',')) {
+                          const [before, ...after] = val.split(',').map(s => s.trim());
+                          const committed = parts.slice(0, -1).filter(Boolean);
+                          if (before) committed.push(before);
+                          const next = after.join(',').trim();
+                          setSelectedAccount(committed.join(', ') + (next ? ', ' + next : ', '));
+                        } else {
+                          const rest = parts.slice(0, -1);
+                          setSelectedAccount([...rest, val].join(', '));
+                        }
+                      }}
                     />
                     <CommandList>
                       <CommandEmpty>
-                        {selectedAccount ? `"${selectedAccount}" 계정을 찾을 수 없습니다. 직접 입력하여 사용할 수 있습니다.` : '계정을 찾을 수 없습니다.'}
+                        {accountInputValue ? `"${accountInputValue}" 계정을 찾을 수 없습니다. 직접 입력하여 사용할 수 있습니다.` : '계정을 찾을 수 없습니다.'}
                       </CommandEmpty>
                       <CommandGroup>
                         {accountNames
-                          .filter(account => 
-                            !selectedAccount || 
-                            account.toLowerCase().includes(selectedAccount.toLowerCase())
-                          )
+                          .filter(account => {
+                            return !accountInputValue || account.toLowerCase().includes(accountInputValue.toLowerCase());
+                          })
                           .slice(0, 100)
                           .map((account) => (
                             <CommandItem
                               key={account}
                               value={account}
                               onSelect={() => {
-                                setSelectedAccount(account);
+                                const parsed = parseMultiInput(selectedAccount);
+                                const onlyKnownAccounts = parsed.filter(p => accountNames.includes(p));
+                                if (onlyKnownAccounts.includes(account)) {
+                                  setSelectedAccount(onlyKnownAccounts.filter(p => p !== account).join(', '));
+                                } else {
+                                  setSelectedAccount([...onlyKnownAccounts, account].join(', '));
+                                }
                                 setAccountComboboxOpen(false);
                               }}
                             >
                               <Check
                                 className={cn(
                                   "mr-2 h-4 w-4",
-                                  selectedAccount === account ? "opacity-100" : "opacity-0"
+                                  parseMultiInput(selectedAccount).includes(account) ? "opacity-100" : "opacity-0"
                                 )}
                               />
                               {account}
@@ -692,9 +948,9 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
               )}
             </div>
 
-            {/* 거래처 검색 - 자동완성 */}
+            {/* 거래처 검색 - 자동완성, 복수 입력 가능 */}
             <div className="space-y-2">
-              <Label>거래처명 (부분 일치)</Label>
+              <Label>거래처명 (쉼표로 구분해 복수 입력 가능, 부분 일치)</Label>
               <Popover open={vendorComboboxOpen} onOpenChange={setVendorComboboxOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -703,39 +959,56 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                     aria-expanded={vendorComboboxOpen}
                     className="w-full justify-between"
                   >
-                    {searchVendor || "거래처를 선택하거나 입력하세요"}
+                    <span className="truncate text-left">{searchVendor.replace(/,\s*$/, '') || "거래처를 선택하거나 입력 (예: 거래처1, 거래처2)"}</span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[400px] p-0" align="start">
                   <Command>
-                    <CommandInput 
-                      placeholder="거래처 검색..." 
-                value={searchVendor}
-                      onValueChange={setSearchVendor}
+                    <CommandInput
+                      placeholder="거래처 검색 또는 쉼표로 복수 입력..."
+                      value={vendorInputValue}
+                      onValueChange={(val) => {
+                        const parts = searchVendor.split(',').map(s => s.trim());
+                        if (val.includes(',')) {
+                          const [before, ...after] = val.split(',').map(s => s.trim());
+                          const committed = parts.slice(0, -1).filter(Boolean);
+                          if (before) committed.push(before);
+                          const next = after.join(',').trim();
+                          setSearchVendor(committed.join(', ') + (next ? ', ' + next : ', '));
+                        } else {
+                          const rest = parts.slice(0, -1);
+                          setSearchVendor([...rest, val].join(', '));
+                        }
+                      }}
                     />
                     <CommandList>
                       <CommandEmpty>거래처를 찾을 수 없습니다.</CommandEmpty>
                       <CommandGroup>
                         {vendorList
-                          .filter(vendor => 
-                            !searchVendor || 
-                            vendor.toLowerCase().includes(searchVendor.toLowerCase())
-                          )
+                          .filter(vendor => {
+                            return !vendorInputValue || vendor.toLowerCase().includes(vendorInputValue.toLowerCase());
+                          })
                           .slice(0, 100)
                           .map((vendor) => (
                             <CommandItem
                               key={vendor}
                               value={vendor}
                               onSelect={() => {
-                                setSearchVendor(vendor);
+                                const parsed = parseMultiInput(searchVendor);
+                                const onlyKnownVendors = parsed.filter(p => vendorList.includes(p));
+                                if (onlyKnownVendors.includes(vendor)) {
+                                  setSearchVendor(onlyKnownVendors.filter(p => p !== vendor).join(', '));
+                                } else {
+                                  setSearchVendor([...onlyKnownVendors, vendor].join(', '));
+                                }
                                 setVendorComboboxOpen(false);
                               }}
                             >
                               <Check
                                 className={cn(
                                   "mr-2 h-4 w-4",
-                                  searchVendor === vendor ? "opacity-100" : "opacity-0"
+                                  parseMultiInput(searchVendor).includes(vendor) ? "opacity-100" : "opacity-0"
                                 )}
                               />
                               {vendor}
@@ -1093,8 +1366,11 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                                                               key.toLowerCase().includes('debit') ||
                                                               key.toLowerCase().includes('credit');
                                         
-                                        if (isAmountColumn && (typeof val === 'number' || (typeof val === 'string' && !isNaN(parseFloat(String(val).replace(/,/g, ''))) && val.trim() !== ''))) {
-                                          const numVal = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, ''));
+                                        const isNumber = typeof val === 'number';
+                                        const isNumericString = typeof val === 'string' && String(val).trim() !== ''
+                                          && !isNaN(parseFloat(String(val).replace(/,/g, '')));
+                                        if (isAmountColumn && (isNumber || isNumericString)) {
+                                          const numVal = isNumber ? Number(val) : parseFloat(String(val).replace(/,/g, ''));
                                           if (!isNaN(numVal) && numVal !== 0) {
                                             return (
                                               <TableCell key={j} className="text-sm text-right">
@@ -1128,33 +1404,61 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                     </Card>
                   )}
                 </div>
-              ) : displayMode === 'monthly' && monthlyData ? (
+              ) : displayMode === 'monthly' ? (
                 <div className="rounded-md border max-h-[600px] overflow-y-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>월</TableHead>
-                        <TableHead className="text-right">차변</TableHead>
-                        <TableHead className="text-right">대변</TableHead>
-                        <TableHead className="text-right">잔액</TableHead>
-                        <TableHead className="text-right">건수</TableHead>
-                        <TableHead className="text-right">계정수</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {monthlyData.map((row, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell className="font-medium">{row.월}</TableCell>
-                          <TableCell className="text-right">{row.차변.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{row.대변.toLocaleString()}</TableCell>
-                          <TableCell className="text-right font-medium">{row.잔액.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{row.건수.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{row.계정수.toLocaleString()}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  {monthlyData && monthlyData.length > 0 ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>거래처</TableHead>
+                          <TableHead>월</TableHead>
+                          <TableHead className="text-right">차변</TableHead>
+                          <TableHead className="text-right">대변</TableHead>
+                          <TableHead className="text-right">잔액</TableHead>
+                          <TableHead className="text-right">건수</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {monthlyData.map((row, idx) => {
+                          const isDataRow = !row.isSubtotal && !row.isTotal;
+                          const rowClass = row.isTotal ? 'bg-muted font-bold' : row.isSubtotal ? 'bg-muted/70 font-medium' : '';
+                          return (
+                            <TableRow key={idx} className={rowClass}>
+                              <TableCell className="font-medium">{row.거래처}</TableCell>
+                              <TableCell className="font-medium">{row.월}</TableCell>
+                              <TableCell
+                                className={cn(
+                                  'text-right',
+                                  isDataRow && 'cursor-pointer hover:bg-muted hover:underline'
+                                )}
+                                onClick={isDataRow ? () => setMonthlyDrilldown({ month: row.월, side: 'debit', vendor: row.거래처 }) : undefined}
+                              >
+                                {row.차변.toLocaleString()}
+                              </TableCell>
+                              <TableCell
+                                className={cn(
+                                  'text-right',
+                                  isDataRow && 'cursor-pointer hover:bg-muted hover:underline'
+                                )}
+                                onClick={isDataRow ? () => setMonthlyDrilldown({ month: row.월, side: 'credit', vendor: row.거래처 }) : undefined}
+                              >
+                                {row.대변.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="text-right font-medium">{row.잔액.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">{row.건수.toLocaleString()}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <p className="p-4 text-sm text-muted-foreground text-center">
+                      {monthlyData && monthlyData.length === 0
+                        ? '검색 결과에서 날짜를 인식할 수 있는 행이 없어 월별 합계를 표시할 수 없습니다. 날짜 컬럼(일자/날짜)과 형식(예: 2025/12/10)을 확인해 주세요.'
+                        : '검색 결과에서 날짜 컬럼을 찾을 수 없어 월별 합계를 표시할 수 없습니다. 일자/날짜 컬럼이 있는지 확인해 주세요.'}
+                    </p>
+                  )}
+                </div>
               ) : (
                 <div className="rounded-md border max-h-[600px] overflow-y-auto">
                   <Table>
@@ -1168,75 +1472,133 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {searchResults
-                        .filter(row => {
-                          // 월계/누계 행 제거 - 모든 컬럼의 값을 확인
-                          const isMonthlyOrCumulative = Object.values(row).some(val => {
-                            if (val === null || val === undefined) return false;
-                            const str = String(val).trim();
-                            // 공백 제거 후 확인
-                            const normalized = str.replace(/\s/g, '');
-                            // 다양한 형태의 월계/누계 확인
-                            return normalized.includes('월계') || 
-                                   normalized.includes('누계') ||
-                                   normalized.includes('[월계]') || 
-                                   normalized.includes('[누계]') ||
-                                   normalized === '월계' ||
-                                   normalized === '누계' ||
-                                   str.includes('[ 월계 ]') ||
-                                   str.includes('[ 누계 ]') ||
-                                   str.includes('[월 계]') ||
-                                   str.includes('[누 계]');
-                          });
-                          return !isMonthlyOrCumulative;
-                        })
-                        .slice(0, 200)
-                        .map((row, idx) => {
-                          const headers = Object.keys(searchResults[0] || {})
-                            .filter(key => !key.includes('잔액') && !key.toLowerCase().includes('balance'));
-                          return (
-                            <TableRow key={idx}>
-                              {headers.map((key, j) => {
-                                const val = row[key];
-                                // 금액 관련 컬럼인지 확인
-                                const isAmountColumn = key.includes('차변') || 
-                                                      key.includes('대변') || 
-                                                      key.includes('금액') ||
-                                                      key.toLowerCase().includes('amount') ||
-                                                      key.toLowerCase().includes('debit') ||
-                                                      key.toLowerCase().includes('credit');
-                                
-                                // 숫자 값이고 금액 컬럼인 경우 천단위 구분기호 추가 (음수 포함)
-                                if (isAmountColumn && (typeof val === 'number' || (typeof val === 'string' && !isNaN(parseFloat(String(val).replace(/,/g, ''))) && val.trim() !== ''))) {
-                                  const numVal = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, ''));
-                                  if (!isNaN(numVal) && numVal !== 0) {
+                      {groupedByAccountAndVendor ? (
+                        <>
+                          {groupedByAccountAndVendor.accountOrder.map((account) => {
+                            const accData = groupedByAccountAndVendor.byAccount.get(account)!;
+                            return (
+                              <React.Fragment key={account}>
+                                <TableRow className="bg-muted/60 font-medium">
+                                  {groupedByAccountAndVendor.headers.map((key, j) => (
+                                    <TableCell key={j} className="text-sm">
+                                      {j === 0 ? `계정: ${account}` : ''}
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                                {accData.vendorOrder.map((vendor) => {
+                                  const venData = accData.byVendor.get(vendor)!;
+                                  return (
+                                    <React.Fragment key={vendor}>
+                                      <TableRow className="bg-muted/40 font-medium">
+                                        {groupedByAccountAndVendor.headers.map((key, j) => (
+                                          <TableCell key={j} className="text-sm">
+                                            {j === 0 ? `거래처: ${vendor}` : ''}
+                                          </TableCell>
+                                        ))}
+                                      </TableRow>
+                                      {venData.rows.slice(0, 200).map((row, idx) => {
+                                        const headers = groupedByAccountAndVendor.headers;
+                                        return (
+                                          <TableRow key={`${account}-${vendor}-${idx}`}>
+                                            {headers.map((key, j) => {
+                                              const val = row[key];
+                                              const isAmountColumn = key.includes('차변') || key.includes('대변') || key.includes('금액')
+                                                || key.toLowerCase().includes('amount') || key.toLowerCase().includes('debit') || key.toLowerCase().includes('credit');
+                                              const isNumber = typeof val === 'number';
+                                              const isNumericString = typeof val === 'string' && String(val).trim() !== ''
+                                                && !isNaN(parseFloat(String(val).replace(/,/g, '')));
+                                              if (isAmountColumn && (isNumber || isNumericString)) {
+                                                const numVal = isNumber ? Number(val) : parseFloat(String(val).replace(/,/g, ''));
+                                                if (!isNaN(numVal) && numVal !== 0) {
+                                                  return <TableCell key={j} className="text-sm text-right">{numVal.toLocaleString()}</TableCell>;
+                                                }
+                                              }
+                                              if (val instanceof Date) {
+                                                return <TableCell key={j} className="text-sm">{val.toLocaleDateString()}</TableCell>;
+                                              }
+                                              return <TableCell key={j} className="text-sm">{String(val ?? '')}</TableCell>;
+                                            })}
+                                          </TableRow>
+                                        );
+                                      })}
+                                      <TableRow className="font-medium bg-muted/30">
+                                        {groupedByAccountAndVendor.headers.map((key, j) => {
+                                          if (j === 0) return <TableCell key={j} className="text-sm">소계 ({venData.count}건)</TableCell>;
+                                          if (key === groupedByAccountAndVendor.debitHeader) return <TableCell key={j} className="text-sm text-right">{venData.debit.toLocaleString()}</TableCell>;
+                                          if (key === groupedByAccountAndVendor.creditHeader) return <TableCell key={j} className="text-sm text-right">{venData.credit.toLocaleString()}</TableCell>;
+                                          return <TableCell key={j} />;
+                                        })}
+                                      </TableRow>
+                                    </React.Fragment>
+                                  );
+                                })}
+                                <TableRow className="font-bold bg-muted/50">
+                                  {groupedByAccountAndVendor.headers.map((key, j) => {
+                                    if (j === 0) return <TableCell key={j} className="text-sm">계정 소계</TableCell>;
+                                    if (key === groupedByAccountAndVendor.debitHeader) return <TableCell key={j} className="text-sm text-right">{accData.debit.toLocaleString()}</TableCell>;
+                                    if (key === groupedByAccountAndVendor.creditHeader) return <TableCell key={j} className="text-sm text-right">{accData.credit.toLocaleString()}</TableCell>;
+                                    return <TableCell key={j} />;
+                                  })}
+                                </TableRow>
+                              </React.Fragment>
+                            );
+                          })}
+                          <TableRow className="font-bold bg-muted">
+                            {groupedByAccountAndVendor.headers.map((key, j) => {
+                              if (j === 0) return <TableCell key={j} className="text-sm">합계</TableCell>;
+                              if (key === groupedByAccountAndVendor.debitHeader) return <TableCell key={j} className="text-sm text-right">{groupedByAccountAndVendor.grandDebit.toLocaleString()}</TableCell>;
+                              if (key === groupedByAccountAndVendor.creditHeader) return <TableCell key={j} className="text-sm text-right">{groupedByAccountAndVendor.grandCredit.toLocaleString()}</TableCell>;
+                              return <TableCell key={j} />;
+                            })}
+                          </TableRow>
+                        </>
+                      ) : (
+                        searchResults
+                          .filter(row => !isMonthlyOrCumulativeRow(row))
+                          .slice(0, 200)
+                          .map((row, idx) => {
+                            const headers = Object.keys(searchResults[0] || {})
+                              .filter(key => !key.includes('잔액') && !key.toLowerCase().includes('balance'));
+                            return (
+                              <TableRow key={idx}>
+                                {headers.map((key, j) => {
+                                  const val = row[key];
+                                  const isAmountColumn = key.includes('차변') || 
+                                        key.includes('대변') || 
+                                        key.includes('금액') ||
+                                        key.toLowerCase().includes('amount') ||
+                                        key.toLowerCase().includes('debit') ||
+                                        key.toLowerCase().includes('credit');
+                                  const isNumber = typeof val === 'number';
+                                  const isNumericString = typeof val === 'string' && String(val).trim() !== ''
+                                    && !isNaN(parseFloat(String(val).replace(/,/g, '')));
+                                  if (isAmountColumn && (isNumber || isNumericString)) {
+                                    const numVal = isNumber ? Number(val) : parseFloat(String(val).replace(/,/g, ''));
+                                    if (!isNaN(numVal) && numVal !== 0) {
+                                      return (
+                                        <TableCell key={j} className="text-sm text-right">
+                                          {numVal.toLocaleString()}
+                                        </TableCell>
+                                      );
+                                    }
+                                  }
+                                  if (val instanceof Date) {
                                     return (
-                                      <TableCell key={j} className="text-sm text-right">
-                                        {numVal.toLocaleString()}
+                                      <TableCell key={j} className="text-sm">
+                                        {val.toLocaleDateString()}
                                       </TableCell>
                                     );
                                   }
-                                }
-                                
-                                // 날짜인 경우
-                                if (val instanceof Date) {
                                   return (
                                     <TableCell key={j} className="text-sm">
-                                      {val.toLocaleDateString()}
+                                      {String(val ?? '')}
                                     </TableCell>
                                   );
-                                }
-                                
-                                // 일반 값
-                                return (
-                                  <TableCell key={j} className="text-sm">
-                                    {String(val ?? '')}
-                                  </TableCell>
-                                );
-                              })}
-                            </TableRow>
-                          );
-                        })}
+                                })}
+                              </TableRow>
+                            );
+                          })
+                      )}
                     </TableBody>
                   </Table>
                 </div>
@@ -1249,6 +1611,73 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
           </CardContent>
         </Card>
       )}
+
+      {/* 월합계 차변/대변 클릭 시 상세 내역 */}
+      <Dialog open={!!monthlyDrilldown} onOpenChange={(open) => !open && setMonthlyDrilldown(null)}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              {monthlyDrilldown && (
+                <>
+                  {monthlyDrilldown.month} {monthlyDrilldown.side === 'debit' ? '차변' : '대변'} 상세 내역
+                  {monthlyDrilldown.vendor && monthlyDrilldown.vendor !== '(거래처 없음)' && (
+                    <span className="text-sm font-normal text-muted-foreground ml-2">
+                      · {monthlyDrilldown.vendor}
+                    </span>
+                  )}
+                  <span className="text-sm font-normal text-muted-foreground ml-2">
+                    ({monthlyDrilldownRows.length}건)
+                  </span>
+                </>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto rounded border">
+            {monthlyDrilldownRows.length > 0 ? (
+              (() => {
+                const drilldownKeys = Object.keys(monthlyDrilldownRows[0]).filter(
+                  key => !String(key).includes('잔액') && !String(key).toLowerCase().includes('balance')
+                );
+                return (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {drilldownKeys.map(key => (
+                          <TableHead key={key}>{key}</TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {monthlyDrilldownRows.map((row, idx) => (
+                        <TableRow key={idx}>
+                          {drilldownKeys.map(key => {
+                            const val = row[key];
+                            const isAmount = key.includes('차변') || key.includes('대변') || key.includes('금액');
+                            const numVal = isAmount && (typeof val === 'number' || (typeof val === 'string' && /[\d,.-]/.test(String(val))))
+                              ? (typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')))
+                              : null;
+                            return (
+                              <TableCell key={key} className={isAmount && numVal != null ? 'text-right' : ''}>
+                                {val instanceof Date
+                                  ? val.toLocaleDateString()
+                                  : numVal != null && !isNaN(numVal)
+                                    ? numVal.toLocaleString()
+                                    : String(val ?? '')}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                );
+              })()
+            ) : (
+              <p className="p-4 text-sm text-muted-foreground text-center">내역이 없습니다.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
