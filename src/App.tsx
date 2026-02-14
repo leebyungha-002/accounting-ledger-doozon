@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AdvancedLedgerAnalysis from "./pages/AdvancedLedgerAnalysis";
 import AIAnalysis from "./pages/AIAnalysis";
 import Index from "./pages/Index";
@@ -17,7 +18,11 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/analysis" element={<AdvancedLedgerAnalysis />} />
+            <Route path="/analysis" element={
+              <ErrorBoundary fallbackTitle="분개장 분석 로드 오류">
+                <AdvancedLedgerAnalysis />
+              </ErrorBoundary>
+            } />
             <Route path="/ai-analysis" element={<AIAnalysis />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

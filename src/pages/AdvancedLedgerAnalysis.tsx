@@ -10,7 +10,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
 import { BenfordAnalysis } from '@/components/BenfordAnalysis';
 import { DualOffsetAnalysis } from './DualOffsetAnalysis';
 import { DuplicateVendorAnalysis } from './DuplicateVendorAnalysis';
@@ -2085,7 +2084,11 @@ ${JSON.stringify(sampledData, null, 2)}
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        {!workbook || showPreviousDialog || showPreviousUpload ? renderUploadScreen() : currentView === 'selection' ? renderSelectionScreen() : renderAnalysisView()}
+        {(!workbook || showPreviousDialog || showPreviousUpload
+          ? renderUploadScreen()
+          : currentView === 'selection'
+            ? renderSelectionScreen()
+            : renderAnalysisView()) ?? renderUploadScreen()}
       </main>
 
       {/* 사용 이력 Dialog */}

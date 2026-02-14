@@ -38,6 +38,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { checkSpacing } from '@/utils/checkSpacing';
@@ -206,6 +207,12 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
   const trendAmountChartRef = useRef<HTMLDivElement>(null);
   const trendCountChartRef = useRef<HTMLDivElement>(null);
 
+  // 월별 거래처 Top 10 (금액 기준)
+  const [top10Month, setTop10Month] = useState<string>('');
+  const [top10Side, setTop10Side] = useState<'debit' | 'credit' | 'both'>('debit');
+  const [top10N, setTop10N] = useState<number>(10);
+  const [selectedTop10Vendor, setSelectedTop10Vendor] = useState<string | null>(null);
+
   // 드릴다운 ref
   const generalDrilldownRef = useRef<HTMLDivElement>(null);
   const generalTypeDrilldownRef = useRef<HTMLDivElement>(null);
@@ -304,6 +311,123 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     
     return sorted;
   }, [analysisEntries, trendSelectedAccount]);
+
+  // 월별·거래처별 차변/대변 집계 (Top 10용)
+  const { monthlyVendorAmounts, monthlyTotalsBySide } = useMemo(() => {
+    const byMonth = new Map<string, Map<string, { debit: number; credit: number }>>();
+    const totalsBySide = new Map<string, { debit: number; credit: number; both: number }>();
+
+    let filteredEntries = analysisEntries;
+    if (trendSelectedAccount && trendSelectedAccount.trim()) {
+      filteredEntries = analysisEntries.filter(e => e.accountName === trendSelectedAccount);
+    }
+
+    filteredEntries.forEach(entry => {
+      const dateStr = String(entry.date);
+      let date: Date;
+      if (dateStr.includes('T')) {
+        date = new Date(dateStr.split('T')[0]);
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        date = new Date(dateStr);
+      } else if (/^\d{8}$/.test(dateStr.replace(/\D/g, ''))) {
+        const cleaned = dateStr.replace(/\D/g, '');
+        date = new Date(`${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}-${cleaned.substring(6, 8)}`);
+      } else {
+        date = new Date(dateStr);
+      }
+      if (isNaN(date.getTime())) return;
+
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const vendor = (entry.vendor && String(entry.vendor).trim()) ? String(entry.vendor).trim() : '(거래처 없음)';
+      const debit = entry.debit || 0;
+      const credit = entry.credit || 0;
+
+      if (!byMonth.has(monthKey)) {
+        byMonth.set(monthKey, new Map());
+        totalsBySide.set(monthKey, { debit: 0, credit: 0, both: 0 });
+      }
+      const monthMap = byMonth.get(monthKey)!;
+      if (!monthMap.has(vendor)) monthMap.set(vendor, { debit: 0, credit: 0 });
+      const v = monthMap.get(vendor)!;
+      v.debit += debit;
+      v.credit += credit;
+      monthMap.set(vendor, v);
+
+      const tot = totalsBySide.get(monthKey)!;
+      tot.debit += debit;
+      tot.credit += credit;
+      tot.both += debit + credit;
+      totalsBySide.set(monthKey, tot);
+    });
+
+    return { monthlyVendorAmounts: byMonth, monthlyTotalsBySide: totalsBySide };
+  }, [analysisEntries, trendSelectedAccount]);
+
+  const allMonthsWithData = useMemo(() => {
+    return Array.from(monthlyVendorAmounts.keys()).sort();
+  }, [monthlyVendorAmounts]);
+
+  const top10TableRows = useMemo(() => {
+    if (!top10Month) return [];
+    const vendorMap = monthlyVendorAmounts.get(top10Month);
+    const totals = monthlyTotalsBySide.get(top10Month);
+    if (!vendorMap || !totals) return [];
+    let baseTotal = 0;
+    if (top10Side === 'debit') baseTotal = totals.debit;
+    else if (top10Side === 'credit') baseTotal = totals.credit;
+    else baseTotal = totals.both;
+    if (baseTotal === 0) return [];
+
+    const rows: { 월: string; 거래처명: string; 금액: number; 비율: number }[] = [];
+    vendorMap.forEach((amounts, vendor) => {
+      let amount = 0;
+      if (top10Side === 'debit') amount = amounts.debit;
+      else if (top10Side === 'credit') amount = amounts.credit;
+      else amount = amounts.debit + amounts.credit;
+      if (amount === 0) return;
+      rows.push({ 월: top10Month, 거래처명: vendor, 금액: amount, 비율: amount / baseTotal });
+    });
+    rows.sort((a, b) => b.금액 - a.금액);
+    return rows.slice(0, top10N);
+  }, [monthlyVendorAmounts, monthlyTotalsBySide, top10Month, top10Side, top10N]);
+
+  useEffect(() => {
+    if (allMonthsWithData.length > 0 && (!top10Month || !allMonthsWithData.includes(top10Month))) {
+      setTop10Month(allMonthsWithData[0]);
+    }
+  }, [allMonthsWithData, top10Month]);
+
+  useEffect(() => {
+    setSelectedTop10Vendor(null);
+  }, [top10Month, top10Side, trendSelectedAccount]);
+
+  // 월별 거래처 Top 10 - 선택 거래처 상세 내역
+  const top10DrilldownEntries = useMemo(() => {
+    if (!selectedTop10Vendor || !top10Month) return [];
+    let filtered = analysisEntries;
+    if (trendSelectedAccount && trendSelectedAccount.trim()) {
+      filtered = analysisEntries.filter(e => e.accountName === trendSelectedAccount);
+    }
+    const [y, m] = top10Month.split('-').map(Number);
+    filtered = filtered.filter(entry => {
+      const dateStr = String(entry.date);
+      let date: Date;
+      if (dateStr.includes('T')) date = new Date(dateStr.split('T')[0]);
+      else if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) date = new Date(dateStr);
+      else if (/^\d{8}$/.test(dateStr.replace(/\D/g, ''))) {
+        const cleaned = dateStr.replace(/\D/g, '');
+        date = new Date(`${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}-${cleaned.substring(6, 8)}`);
+      } else date = new Date(dateStr);
+      if (isNaN(date.getTime())) return false;
+      if (date.getFullYear() !== y || date.getMonth() + 1 !== m) return false;
+      const vendor = (entry.vendor && String(entry.vendor).trim()) ? String(entry.vendor).trim() : '(거래처 없음)';
+      if (vendor !== selectedTop10Vendor) return false;
+      if (top10Side === 'debit') return (entry.debit || 0) > 0;
+      if (top10Side === 'credit') return (entry.credit || 0) > 0;
+      return true;
+    });
+    return filtered.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }, [analysisEntries, trendSelectedAccount, top10Month, top10Side, selectedTop10Vendor]);
 
   // 현금 흐름 분석 데이터
   const cashFlowData = useMemo(() => {
@@ -4392,6 +4516,215 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                                 </BarChart>
                               </ResponsiveContainer>
                             </div>
+                          </CardContent>
+                        </Card>
+
+                        {/* 월별 거래처 Top 10 (금액 기준) */}
+                        <Card>
+                          <CardHeader>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <CardTitle className="flex items-center gap-2">
+                                  월별 거래처 Top 10 (금액 기준)
+                                  {trendSelectedAccount && <span className="text-base font-normal text-muted-foreground ml-2">({trendSelectedAccount})</span>}
+                                </CardTitle>
+                                <CardDescription>
+                                  월·차변/대변/차대변·상위 N을 선택하면 해당 월 금액 기준 상위 거래처를 표시합니다.
+                                </CardDescription>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={top10TableRows.length === 0}
+                                onClick={() => {
+                                  const data = top10TableRows.map(row => ({
+                                    '월': row.월,
+                                    '거래처명': row.거래처명,
+                                    '금액': row.금액,
+                                    '비율(%)': `${(row.비율 * 100).toFixed(1)}%`
+                                  }));
+                                  const sideLabel = top10Side === 'debit' ? '차변' : top10Side === 'credit' ? '대변' : '차대변';
+                                  exportToExcel(data, `월별거래처Top10_${top10Month}_${sideLabel}`, '월별거래처Top10', [12, 30, 15, 12]);
+                                  toast({ title: '다운로드 완료', description: '월별 거래처 Top 10을 엑셀 파일로 저장했습니다.' });
+                                }}
+                              >
+                                <Download className="w-4 h-4 mr-2" />
+                                엑셀 다운로드
+                              </Button>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <div className="flex flex-wrap items-end gap-4">
+                              <div className="space-y-2">
+                                <Label>월</Label>
+                                <Select
+                                  value={top10Month || (allMonthsWithData[0] ?? '')}
+                                  onValueChange={setTop10Month}
+                                >
+                                  <SelectTrigger className="w-[120px]">
+                                    <SelectValue placeholder="월 선택" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {allMonthsWithData.map((m) => (
+                                      <SelectItem key={m} value={m}>
+                                        {m}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>금액 기준</Label>
+                                <Select
+                                  value={top10Side}
+                                  onValueChange={(v: 'debit' | 'credit' | 'both') => setTop10Side(v)}
+                                >
+                                  <SelectTrigger className="w-[120px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="debit">차변</SelectItem>
+                                    <SelectItem value="credit">대변</SelectItem>
+                                    <SelectItem value="both">차대변</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>상위</Label>
+                                <Select
+                                  value={String(top10N)}
+                                  onValueChange={(v) => setTop10N(Number(v))}
+                                >
+                                  <SelectTrigger className="w-[90px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {[5, 10, 20, 30].map((n) => (
+                                      <SelectItem key={n} value={String(n)}>
+                                        Top {n}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="overflow-x-auto rounded-md border">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>월</TableHead>
+                                    <TableHead>거래처명</TableHead>
+                                    <TableHead className="text-right">금액</TableHead>
+                                    <TableHead className="text-right">비율</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {top10TableRows.length === 0 ? (
+                                    <TableRow>
+                                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                                        {top10Month ? '해당 월에 거래 데이터가 없거나 선택한 금액 기준에 맞는 거래가 없습니다.' : '월을 선택하세요.'}
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : (
+                                    top10TableRows.map((row, idx) => (
+                                      <TableRow
+                                        key={`${row.월}-${row.거래처명}-${idx}`}
+                                        className={selectedTop10Vendor === row.거래처명 ? 'bg-muted/70' : ''}
+                                      >
+                                        <TableCell className="font-medium">{row.월}</TableCell>
+                                        <TableCell
+                                          className="font-medium cursor-pointer hover:underline text-blue-600 dark:text-blue-400"
+                                          onClick={() => setSelectedTop10Vendor(prev => prev === row.거래처명 ? null : row.거래처명)}
+                                        >
+                                          {row.거래처명}
+                                        </TableCell>
+                                        <TableCell className="text-right">{row.금액.toLocaleString()}</TableCell>
+                                        <TableCell className="text-right">{(row.비율 * 100).toFixed(1)}%</TableCell>
+                                      </TableRow>
+                                    ))
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </div>
+
+                            {/* 거래처별 상세 내역 드릴다운 */}
+                            {selectedTop10Vendor && (
+                              <Card className="border-primary/30 bg-muted/20">
+                                <CardHeader className="pb-3">
+                                  <div className="flex items-center justify-between">
+                                    <CardTitle className="text-base">
+                                      거래처: {selectedTop10Vendor} — 상세 내역 ({top10Month})
+                                      {trendSelectedAccount && <span className="text-sm font-normal text-muted-foreground ml-2">({trendSelectedAccount})</span>}
+                                    </CardTitle>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          const data = top10DrilldownEntries.map(e => ({
+                                            '일자': typeof e.date === 'string' ? e.date.split('T')[0] : String(e.date),
+                                            '전표번호': e.entryNumber ?? '',
+                                            '계정과목': e.accountName,
+                                            '적요': e.description,
+                                            '거래처': e.vendor,
+                                            '차변': e.debit,
+                                            '대변': e.credit
+                                          }));
+                                          const sideLabel = top10Side === 'debit' ? '차변' : top10Side === 'credit' ? '대변' : '차대변';
+                                          exportToExcel(data, `월별거래처상세_${top10Month}_${selectedTop10Vendor.replace(/[/\\?*[\]]/g, '_')}_${sideLabel}`, '상세내역', [12, 12, 20, 40, 20, 12, 12]);
+                                          toast({ title: '다운로드 완료', description: '거래처 상세 내역을 엑셀 파일로 저장했습니다.' });
+                                        }}
+                                        disabled={top10DrilldownEntries.length === 0}
+                                      >
+                                        <Download className="w-4 h-4 mr-2" />
+                                        엑셀 다운로드
+                                      </Button>
+                                      <Button variant="ghost" size="sm" onClick={() => setSelectedTop10Vendor(null)}>
+                                        닫기
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="overflow-x-auto rounded-md border max-h-[320px] overflow-y-auto">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>일자</TableHead>
+                                          <TableHead>전표번호</TableHead>
+                                          <TableHead>계정과목</TableHead>
+                                          <TableHead>적요</TableHead>
+                                          <TableHead className="text-right">차변</TableHead>
+                                          <TableHead className="text-right">대변</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {top10DrilldownEntries.length === 0 ? (
+                                          <TableRow>
+                                            <TableCell colSpan={6} className="text-center text-muted-foreground">
+                                              해당 조건의 상세 내역이 없습니다.
+                                            </TableCell>
+                                          </TableRow>
+                                        ) : (
+                                          top10DrilldownEntries.map((entry, idx) => (
+                                            <TableRow key={idx}>
+                                              <TableCell className="text-sm">
+                                                {typeof entry.date === 'string' ? entry.date.split('T')[0] : String(entry.date)}
+                                              </TableCell>
+                                              <TableCell className="text-sm">{String(entry.entryNumber ?? '')}</TableCell>
+                                              <TableCell className="text-sm font-medium">{entry.accountName}</TableCell>
+                                              <TableCell className="text-sm max-w-[200px] truncate" title={entry.description}>{entry.description}</TableCell>
+                                              <TableCell className="text-sm text-right">{entry.debit ? entry.debit.toLocaleString() : ''}</TableCell>
+                                              <TableCell className="text-sm text-right">{entry.credit ? entry.credit.toLocaleString() : ''}</TableCell>
+                                            </TableRow>
+                                          ))
+                                        )}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            )}
                           </CardContent>
                         </Card>
 

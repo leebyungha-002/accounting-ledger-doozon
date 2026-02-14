@@ -38,8 +38,9 @@ export const DATE_KEYWORDS = [
   'date'
 ];
 
-// 거래처 관련 키워드
+// 거래처 관련 키워드 (거래처명 우선 인식을 위해 앞에 배치)
 export const VENDOR_KEYWORDS = [
+  '거래처명',
   '거래처', 
   '업체', 
   '회사', 

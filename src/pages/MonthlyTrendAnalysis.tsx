@@ -11,6 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { analyzeWithFlash, hasApiKey, estimateTokens, estimateCost } from '@/lib/geminiClient';
 import { getUsageSummary, type UsageSummary } from '@/lib/usageTracker';
 import { findDebitCreditHeaders } from '@/lib/headerUtils';
+import { VENDOR_KEYWORDS } from '@/lib/columnMapping';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
 
@@ -111,6 +114,9 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
   const [showStructureDialog, setShowStructureDialog] = useState<boolean>(false);
   const [showCostDialog, setShowCostDialog] = useState<boolean>(false);
   const [usageSummary, setUsageSummary] = useState<UsageSummary>(getUsageSummary());
+  const [top10Month, setTop10Month] = useState<number>(1);
+  const [top10Side, setTop10Side] = useState<'debit' | 'credit' | 'both'>('debit');
+  const [top10N, setTop10N] = useState<number>(10);
 
   // 매출/비용 계정 자동 분류
   const categorizedAccounts = useMemo(() => {
@@ -374,6 +380,113 @@ export const MonthlyTrendAnalysis: React.FC<MonthlyTrendAnalysisProps> = ({
     
     return totals;
   }, [monthlyData, selectedAccounts, categorizedAccounts.manufacturing]);
+
+  // 월별·거래처별 차변/대변 집계 (Top 10용)
+  const { monthlyVendorAmounts, monthlyTotalsBySide } = useMemo(() => {
+    const byMonth = new Map<number, Map<string, { debit: number; credit: number }>>();
+    const totalsBySide = new Map<number, { debit: number; credit: number; both: number }>();
+    for (let m = 1; m <= 12; m++) {
+      byMonth.set(m, new Map());
+      totalsBySide.set(m, { debit: 0, credit: 0, both: 0 });
+    }
+
+    selectedAccounts.forEach(accountName => {
+      let ledgerRows: LedgerRow[] = [];
+      let headers: string[] = [];
+      const sheetByName = workbook.Sheets[accountName];
+      if (sheetByName) {
+        const result = getDataFromSheet(sheetByName);
+        ledgerRows = result.data;
+        headers = result.headers;
+      } else {
+        const firstSheetName = workbook.SheetNames[0];
+        const firstSheet = workbook.Sheets[firstSheetName];
+        if (!firstSheet) return;
+        const result = getDataFromSheet(firstSheet);
+        headers = result.headers;
+        const accountHeader = robustFindHeader(headers, ['계정과목', '계정명', '계정', 'account']);
+        if (!accountHeader) return;
+        ledgerRows = result.data.filter(
+          row => String(row[accountHeader] || '').trim() === accountName
+        );
+      }
+      if (ledgerRows.length === 0) return;
+
+      const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date']) ||
+        headers.find(h => h.includes('일자') || h.includes('날짜'));
+      const vendorHeader = robustFindHeader(headers, VENDOR_KEYWORDS) ||
+        headers.find(h => h && (h.includes('거래처') || h.toLowerCase().includes('vendor')));
+      const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, ledgerRows, dateHeader);
+      if (!dateHeader) return;
+
+      ledgerRows.forEach(row => {
+        let date = row[dateHeader];
+        if (!(date instanceof Date)) date = parseDate(date);
+        if (!(date instanceof Date)) return;
+        const month = date.getMonth() + 1;
+        const vendor = vendorHeader ? String(row[vendorHeader] || '').trim() || '(거래처 없음)' : '(거래처 없음)';
+        const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
+        const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
+
+        const monthMap = byMonth.get(month)!;
+        if (!monthMap.has(vendor)) monthMap.set(vendor, { debit: 0, credit: 0 });
+        const v = monthMap.get(vendor)!;
+        v.debit += debit;
+        v.credit += credit;
+        monthMap.set(vendor, v);
+
+        const tot = totalsBySide.get(month)!;
+        tot.debit += debit;
+        tot.credit += credit;
+        tot.both += debit + credit;
+        totalsBySide.set(month, tot);
+      });
+    });
+
+    return { monthlyVendorAmounts: byMonth, monthlyTotalsBySide: totalsBySide };
+  }, [workbook, selectedAccounts]);
+
+  // setTop10Month in useMemo causes issues; compute monthsWithData without side filter for initial list
+  const allMonthsWithData = useMemo(() => {
+    const set = new Set<number>();
+    monthlyVendorAmounts.forEach((vendorMap, month) => {
+      let hasAny = false;
+      vendorMap.forEach(({ debit, credit }) => {
+        if (debit !== 0 || credit !== 0) hasAny = true;
+      });
+      if (hasAny) set.add(month);
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [monthlyVendorAmounts]);
+
+  // Top 10 테이블 행: 선택 월·금액기준·상위 N
+  const top10TableRows = useMemo(() => {
+    const vendorMap = monthlyVendorAmounts.get(top10Month);
+    const totals = monthlyTotalsBySide.get(top10Month);
+    if (!vendorMap || !totals) return [];
+    let baseTotal = 0;
+    if (top10Side === 'debit') baseTotal = totals.debit;
+    else if (top10Side === 'credit') baseTotal = totals.credit;
+    else baseTotal = totals.both;
+    if (baseTotal === 0) return [];
+
+    const rows: { 월: number; 거래처명: string; 금액: number; 비율: number }[] = [];
+    vendorMap.forEach((amounts, vendor) => {
+      let amount = 0;
+      if (top10Side === 'debit') amount = amounts.debit;
+      else if (top10Side === 'credit') amount = amounts.credit;
+      else amount = amounts.debit + amounts.credit;
+      if (amount === 0) return;
+      rows.push({
+        월: top10Month,
+        거래처명: vendor,
+        금액: amount,
+        비율: amount / baseTotal,
+      });
+    });
+    rows.sort((a, b) => b.금액 - a.금액);
+    return rows.slice(0, top10N);
+  }, [monthlyVendorAmounts, monthlyTotalsBySide, top10Month, top10Side, top10N]);
 
   const handleToggleAccount = (account: string) => {
     const newSet = new Set(selectedAccounts);
@@ -1048,6 +1161,107 @@ ${monthlyDataText}
           </div>
         </CardContent>
       </Card>
+
+      {/* 월별 거래처 Top 10 (금액 기준) */}
+      {selectedAccounts.size > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              월별 거래처 Top 10 (금액 기준)
+            </CardTitle>
+            <CardDescription>
+              월·차변/대변/차대변·상위 N을 선택하면 해당 월 금액 기준 상위 거래처를 표시합니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-2">
+                <Label>월</Label>
+                <Select
+                  value={String(top10Month)}
+                  onValueChange={(v) => setTop10Month(Number(v))}
+                >
+                  <SelectTrigger className="w-[100px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(allMonthsWithData.length > 0 ? allMonthsWithData : Array.from({ length: 12 }, (_, i) => i + 1)).map((m) => (
+                      <SelectItem key={m} value={String(m)}>
+                        {m}월
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>금액 기준</Label>
+                <Select
+                  value={top10Side}
+                  onValueChange={(v: 'debit' | 'credit' | 'both') => setTop10Side(v)}
+                >
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="debit">차변</SelectItem>
+                    <SelectItem value="credit">대변</SelectItem>
+                    <SelectItem value="both">차대변</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>상위</Label>
+                <Select
+                  value={String(top10N)}
+                  onValueChange={(v) => setTop10N(Number(v))}
+                >
+                  <SelectTrigger className="w-[90px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[5, 10, 20, 30].map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        Top {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>월</TableHead>
+                    <TableHead>거래처명</TableHead>
+                    <TableHead className="text-right">금액</TableHead>
+                    <TableHead className="text-right">비율</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {top10TableRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                        해당 월에 거래 데이터가 없거나 선택한 금액 기준에 맞는 거래가 없습니다.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    top10TableRows.map((row, idx) => (
+                      <TableRow key={`${row.월}-${row.거래처명}-${idx}`}>
+                        <TableCell>{row.월}월</TableCell>
+                        <TableCell className="font-medium">{row.거래처명}</TableCell>
+                        <TableCell className="text-right">{row.금액.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{(row.비율 * 100).toFixed(1)}%</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 월별 데이터 테이블 */}
       {selectedAccounts.size > 0 && (

@@ -276,6 +276,20 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
   const accountInputValue = (selectedAccount.split(',').pop() ?? '').trim();
   const vendorInputValue = (searchVendor.split(',').pop() ?? '').trim();
 
+  // 거래처 미입력 시 상세 결과 테이블에서 거래처 관련 열 숨김 (parseMultiInput 의존 제거로 초기화 순서 오류 방지)
+  const hasVendorSearch = (searchVendor || '').split(',').map(s => s.trim()).filter(Boolean).length > 0;
+  const detailTableHeaders = useMemo(() => {
+    const keys = Object.keys(searchResults[0] || {});
+    const isVendorKey = (k: string) =>
+      k && (k.includes('거래처') || k.includes('업체') || k.includes('회사') || k.toLowerCase().includes('vendor') || k.toLowerCase().includes('customer'));
+    return keys.filter(
+      key =>
+        !key.includes('잔액') &&
+        !key.toLowerCase().includes('balance') &&
+        (hasVendorSearch || !isVendorKey(key))
+    );
+  }, [searchResults, hasVendorSearch]);
+
   // 표시 방식 변경 시 드릴다운 초기화
   useEffect(() => {
     setSelectedVendorForDrilldown(null);
@@ -284,7 +298,28 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
 
   const allData = useMemo(() => {
     const result: { account: string; data: LedgerRow[]; headers: string[] }[] = [];
-    
+    const sheetNames = workbook?.SheetNames ?? [];
+
+    if (sheetNames.length === 0) return result;
+
+    // 단일 시트 + 계정 컬럼 모드: accountNames가 시트명이 아니라 계정값인 경우
+    if (sheetNames.length === 1) {
+      const firstSheetName = sheetNames[0];
+      const sheet = workbook.Sheets[firstSheetName];
+      const { data, headers } = getDataFromSheet(sheet);
+      const accountHeader = robustFindHeader(headers, ACCOUNT_KEYWORDS) ?? headers.find(h => h && (h.includes('계정') || h.toLowerCase().includes('account')));
+      if (accountHeader && data.length > 0) {
+        accountNames.forEach(accountName => {
+          const accountData = data.filter(row => String(row[accountHeader] ?? '').trim() === accountName);
+          if (accountData.length > 0) {
+            result.push({ account: accountName, data: accountData, headers });
+          }
+        });
+        if (result.length > 0) return result;
+      }
+    }
+
+    // 다중 시트 또는 단일 시트에서 계정 컬럼을 못 찾은 경우: 시트명 = 계정명
     accountNames.forEach(accountName => {
       const sheet = workbook.Sheets[accountName];
       const { data, headers } = getDataFromSheet(sheet);
@@ -292,16 +327,19 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
         result.push({ account: accountName, data, headers });
       }
     });
-    
+
     return result;
   }, [workbook, accountNames]);
 
-  // 모든 거래처 목록 추출 (자동완성용)
+  // 모든 거래처 목록 추출 (자동완성용) — handleSearch와 동일한 거래처 헤더 우선순위 사용
   const vendorList = useMemo(() => {
     const vendorSet = new Set<string>();
     
     allData.forEach(({ data, headers }) => {
-      const vendorHeader = robustFindHeader(headers, VENDOR_KEYWORDS);
+      const vendorHeader =
+        headers.find((h: string) => (h && (h === '거래처명' || h.includes('거래처명')))) ||
+        robustFindHeader(headers, VENDOR_KEYWORDS) ||
+        headers.find((h: string) => h && (h.includes('거래처') || h.toLowerCase().includes('vendor')));
       
       if (vendorHeader) {
         data.forEach(row => {
@@ -532,6 +570,13 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     return h ? String(row[h] ?? '').trim() : '';
   };
 
+  // 쉼표로 구분된 복수 값 파싱 (앞뒤 공백 제거, 빈 문자열 제외) — useMemo/handleSearch보다 위에 정의
+  const parseMultiInput = (input: string): string[] =>
+    (input || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
   // 복수 계정 + 복수 거래처 선택 시: 계정별 → 거래처별 그룹 및 소계
   const groupedByAccountAndVendor = useMemo(() => {
     const accounts = parseMultiInput(selectedAccount);
@@ -601,13 +646,6 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     };
   }, [searchResults, selectedAccount, searchVendor]);
 
-  // 쉼표로 구분된 복수 값 파싱 (앞뒤 공백 제거, 빈 문자열 제외)
-  const parseMultiInput = (input: string): string[] =>
-    (input || '')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-
   const handleSearch = () => {
     const selectedAccountsArray = parseMultiInput(selectedAccount);
     const searchVendorsArray = parseMultiInput(searchVendor);
@@ -644,9 +682,32 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       return;
     }
 
+    // 단일 시트 + 계정 컬럼 모드 vs 다중 시트(시트명=계정명) 모드
+    const sheetNames = workbook.SheetNames || [];
+    const isSingleSheetWithAccountColumn = sheetNames.length === 1;
+    let fullSheetData: LedgerRow[] = [];
+    let fullSheetHeaders: string[] = [];
+    let accountColumnHeader: string | undefined;
+    if (isSingleSheetWithAccountColumn) {
+      const firstSheet = workbook.Sheets[sheetNames[0]];
+      const out = getDataFromSheet(firstSheet);
+      fullSheetData = out.data;
+      fullSheetHeaders = out.headers;
+      accountColumnHeader = robustFindHeader(fullSheetHeaders, ACCOUNT_KEYWORDS) ?? fullSheetHeaders.find(h => h && (h.includes('계정') || String(h).toLowerCase().includes('account')));
+    }
+
     accountsToSearch.forEach(accountName => {
-      const sheet = workbook.Sheets[accountName];
-      const { data, headers } = getDataFromSheet(sheet);
+      let data: LedgerRow[];
+      let headers: string[];
+      if (isSingleSheetWithAccountColumn && accountColumnHeader) {
+        data = fullSheetData.filter(row => String(row[accountColumnHeader!] ?? '').trim() === accountName);
+        headers = fullSheetHeaders;
+      } else {
+        const sheet = workbook.Sheets[accountName];
+        const out = getDataFromSheet(sheet);
+        data = out.data;
+        headers = out.headers;
+      }
 
       const vendorHeader =
         headers.find((h: string) => (h && (h === '거래처명' || h.includes('거래처명')))) ||
@@ -662,12 +723,13 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       data.forEach(row => {
         let match = true;
 
-        // 거래처 필터: 전체 검색어 우선(쉼표 포함 이름 ex. "GRAPHY SMA, INC"), 그 다음 세그먼트 중 긴 것만 매칭(짧은 "INC" 등으로 타 회사 제외)
+        // 거래처 필터: 전체 검색어 우선(쉼표 포함 이름 ex. "GRAPHY SMA, INC"), 세그먼트 매칭 시 한글은 글자 수 제한 없음(영문 ', inc' 등만 4자 미만 제외)
         if (searchVendorsArray.length > 0 && vendorHeader) {
           const vendor = String(row[vendorHeader] || '').trim();
           const vendorLower = vendor.toLowerCase().replace(/\s+/g, ' ');
           const fullSearch = searchVendor.trim().toLowerCase().replace(/\s+/g, ' ');
           const normalizedVendor = vendorLower.replace(/\s/g, '');
+          const hasHangul = (s: string) => /[\uAC00-\uD7A3]/.test(s); // 한글 음절 포함 여부
           let matchesVendor = false;
           if (fullSearch && (vendorLower.includes(fullSearch) || normalizedVendor.includes(fullSearch.replace(/\s/g, '')))) {
             matchesVendor = true;
@@ -676,7 +738,8 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
             matchesVendor = searchVendorsArray.some(sv => {
               const term = sv.trim().toLowerCase();
               if (!term) return false;
-              if (term.length < 4) return false;
+              // 복수 세그먼트일 때: 한글 포함이면 글자 수 제한 없음, 한글이 없으면 4자 미만(inc 등) 제외
+              if (searchVendorsArray.length > 1 && term.length < 4 && !hasHangul(sv.trim())) return false;
               return vendorLower.includes(term) || normalizedVendor.includes(term.replace(/\s/g, ''));
             });
           }
@@ -1464,11 +1527,9 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        {Object.keys(searchResults[0] || {})
-                          .filter(key => !key.includes('잔액') && !key.toLowerCase().includes('balance'))
-                          .map(key => (
-                            <TableHead key={key}>{key}</TableHead>
-                          ))}
+                        {detailTableHeaders.map(key => (
+                          <TableHead key={key}>{key}</TableHead>
+                        ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1556,12 +1617,9 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                         searchResults
                           .filter(row => !isMonthlyOrCumulativeRow(row))
                           .slice(0, 200)
-                          .map((row, idx) => {
-                            const headers = Object.keys(searchResults[0] || {})
-                              .filter(key => !key.includes('잔액') && !key.toLowerCase().includes('balance'));
-                            return (
+                          .map((row, idx) => (
                               <TableRow key={idx}>
-                                {headers.map((key, j) => {
+                                {detailTableHeaders.map((key, j) => {
                                   const val = row[key];
                                   const isAmountColumn = key.includes('차변') || 
                                         key.includes('대변') || 
@@ -1596,8 +1654,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                                   );
                                 })}
                               </TableRow>
-                            );
-                          })
+                            ))
                       )}
                     </TableBody>
                   </Table>
