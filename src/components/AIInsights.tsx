@@ -528,11 +528,24 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 계정명 정규화 함수 (숫자 제거)
+  // 계정과목코드 추출 ([10301]보통예금 → 10301, 없으면 Infinity로 정렬 시 뒤로)
+  const extractAccountCode = (accountName: string): number => {
+    if (!accountName) return Infinity;
+    const s = String(accountName).trim();
+    const bracketMatch = s.match(/^\[(\d+)\]/);
+    if (bracketMatch) return parseInt(bracketMatch[1], 10);
+    const leadingNum = s.match(/^(\d+)/);
+    if (leadingNum) return parseInt(leadingNum[1], 10);
+    return Infinity;
+  };
+
+  // 계정명 정규화 함수 (코드·숫자 제거하여 계정명만 비교)
   const normalizeAccountName = (accountName: string): string => {
     if (!accountName) return '';
-    // 앞의 숫자와 공백 제거 (예: "101 현금" -> "현금")
-    return String(accountName).replace(/^\d+\s*/, '').trim();
+    let s = String(accountName).trim();
+    // [10301] 보통예금 → 보통예금, 10301 보통예금 → 보통예금
+    s = s.replace(/^\[\d+\]\s*/, '').replace(/^\d+\s*/, '');
+    return s.trim();
   };
 
   // 계정명 매칭 함수
@@ -629,6 +642,16 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     return 999;
   };
 
+  // Excel 행에서 헤더 키워드로 컬럼 키 찾기 (공백/오타 허용)
+  const findColumnKey = (rowKeys: string[], keywords: string[]): string | undefined => {
+    const normalized = (s: string) => String(s).replace(/\s/g, '').toLowerCase();
+    for (const key of rowKeys) {
+      const n = normalized(key);
+      if (keywords.some(kw => n.includes(normalized(kw)) || normalized(kw).includes(n))) return key;
+    }
+    return undefined;
+  };
+
   // 계정별원장에서 전기이월 항목 추출하여 기초잔액 계산
   const openingBalances = useMemo(() => {
     if (!ledgerWorkbook || !getDataFromSheet) return new Map<string, number>();
@@ -639,74 +662,33 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     ledgerWorkbook.SheetNames.forEach(sheetName => {
       const worksheet = ledgerWorkbook.Sheets[sheetName];
       const { data } = getDataFromSheet(worksheet);
+      if (data.length === 0) return;
 
-      // 전기이월 항목 찾기
+      const rowKeys = Object.keys(data[0]);
+      const descKey = findColumnKey(rowKeys, ['적요', '적요란', '내용', '비고', 'description']);
+      const balanceKey = findColumnKey(rowKeys, ['잔액', 'balance']);
+
       data.forEach(row => {
-        // 적요란 또는 내용 필드에서 전기이월 키워드 확인
-        const descriptionFields = ['적요', '적요란', '내용', '비고', 'description'];
+        const descVal = descKey ? row[descKey] : undefined;
         let isOpeningEntry = false;
-
-        for (const field of descriptionFields) {
-          const value = row[field];
-          if (value) {
-            const str = String(value).replace(/\s/g, '');
-            if (openingKeywords.some(keyword => str.includes(keyword))) {
-              isOpeningEntry = true;
-              break;
-            }
-          }
+        if (descVal != null && String(descVal).trim() !== '') {
+          const str = String(descVal).replace(/\s/g, '');
+          if (openingKeywords.some(keyword => str.includes(keyword))) isOpeningEntry = true;
         }
 
-        if (isOpeningEntry) {
-          // 차변/대변 헤더 찾기
-          const debitFields = ['차변', '차   변', 'debit'];
-          const creditFields = ['대변', '대   변', 'credit'];
-          
-          let debit = 0;
-          let credit = 0;
+        if (!isOpeningEntry) return;
 
-          for (const field of debitFields) {
-            if (row[field] !== undefined) {
-              const val = row[field];
-              if (typeof val === 'number') {
-                debit = val;
-                break;
-              } else if (typeof val === 'string') {
-                const parsed = parseFloat(val.replace(/,/g, ''));
-                if (!isNaN(parsed)) {
-                  debit = parsed;
-                  break;
-                }
-              }
-            }
-          }
+        // 잔액 컬럼이 있으면 그 값을 기초잔액으로 사용, 없거나 비어 있으면 0원
+        let balance = 0;
+        if (balanceKey != null && row[balanceKey] !== undefined && row[balanceKey] !== '') {
+          const val = row[balanceKey];
+          balance = typeof val === 'number' ? val : (parseFloat(String(val).replace(/,/g, '')) || 0);
+        }
 
-          for (const field of creditFields) {
-            if (row[field] !== undefined) {
-              const val = row[field];
-              if (typeof val === 'number') {
-                credit = val;
-                break;
-              } else if (typeof val === 'string') {
-                const parsed = parseFloat(val.replace(/,/g, ''));
-                if (!isNaN(parsed)) {
-                  credit = parsed;
-                  break;
-                }
-              }
-            }
-          }
-
-          // 기초잔액 = 차변 - 대변
-          const balance = debit - credit;
-          
-          // 시트명(계정명) 정규화하여 저장
-          const normalizedSheetName = normalizeAccountName(sheetName);
-          if (normalizedSheetName) {
-            // 이미 존재하는 경우 합산 (여러 전기이월 항목이 있을 수 있음)
-            const existing = balances.get(normalizedSheetName) || 0;
-            balances.set(normalizedSheetName, existing + balance);
-          }
+        const normalizedSheetName = normalizeAccountName(sheetName);
+        if (normalizedSheetName) {
+          const existing = balances.get(normalizedSheetName) || 0;
+          balances.set(normalizedSheetName, existing + balance);
         }
       });
     });
@@ -752,12 +734,12 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
         category: getAccountCategory(name) // 재무제표 순서 카테고리
       };
     }).sort((a, b) => {
-      // 1순위: 재무제표 순서 (카테고리)
-      if (a.category !== b.category) {
-        return a.category - b.category;
-      }
-      // 2순위: 같은 카테고리 내에서는 금액 순 (내림차순)
-      return (b.debit + b.credit) - (a.debit + a.credit);
+      // 1순위: 계정과목코드 ([10301], [10302] 등) 숫자 기준 오름차순
+      const codeA = extractAccountCode(a.name);
+      const codeB = extractAccountCode(b.name);
+      if (codeA !== codeB) return codeA - codeB;
+      // 2순위: 코드가 같거나 없으면 계정명 문자열
+      return (a.name || '').localeCompare(b.name || '');
     });
 
     return { totalDebit, totalCredit, diff, isBalanced, accountStats };

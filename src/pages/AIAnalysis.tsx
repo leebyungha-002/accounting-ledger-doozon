@@ -517,6 +517,8 @@ const AIAnalysis: React.FC = () => {
                   </div>
                 ) : (
                   <UploadZone
+                    title="당기 계정별원장 파일 업로드"
+                    description="당기 계정별원장 엑셀 파일을 드래그하거나 클릭하여 업로드하세요. 기초잔액 정보 확인에 사용됩니다."
                     onFileSelect={async (file: File) => {
                       try {
                         const data = await file.arrayBuffer();

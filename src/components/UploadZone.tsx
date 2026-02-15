@@ -15,13 +15,19 @@ interface UploadZoneProps {
   onDemo?: () => void;
   loading?: boolean;
   error?: string | null;
+  /** 업로드 영역 제목 (미입력 시: 더존 분개장 파일 업로드) */
+  title?: string;
+  /** 업로드 안내 문구 (미입력 시 기본 문구) */
+  description?: string;
 }
 
 const UploadZone: React.FC<UploadZoneProps> = ({ 
   onFileSelect, 
   onDemo, 
   loading = false, 
-  error = null 
+  error = null,
+  title = '더존 분개장 파일 업로드',
+  description = '더존(Douzone) SmartA, iCube 등에서 엑셀로 변환된 분개장(Journal Entry) 파일을 드래그하거나 클릭하여 업로드하세요.',
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -68,10 +74,10 @@ const UploadZone: React.FC<UploadZoneProps> = ({
               )}
             </div>
             <h3 className="text-xl font-bold mb-2">
-              더존 분개장 파일 업로드
+              {title}
             </h3>
             <p className="text-muted-foreground mb-6 max-w-md">
-              더존(Douzone) SmartA, iCube 등에서 엑셀로 변환된 분개장(Journal Entry) 파일을 드래그하거나 클릭하여 업로드하세요.
+              {description}
             </p>
             <div className="bg-muted text-muted-foreground px-4 py-2 rounded text-sm font-medium">
               지원 형식: .xlsx, .xls (Header: 일자, 계정과목, 차변, 대변, 적요...)

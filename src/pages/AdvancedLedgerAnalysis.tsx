@@ -6,6 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
@@ -58,7 +61,9 @@ import {
   TrendingUp as TrendingUpIcon,
   DollarSign,
   Calendar,
-  Activity
+  Activity,
+  ChevronsUpDown,
+  Check
 } from 'lucide-react';
 
 // Types
@@ -154,6 +159,7 @@ const AdvancedLedgerAnalysis = () => {
   const [previousWorkbook, setPreviousWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [accountNames, setAccountNames] = useState<string[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [accountComboboxOpen, setAccountComboboxOpen] = useState(false);
   // 시트가 하나만 있고 헤더에 계정명이 있는 경우를 추적
   const [isSingleSheetWithAccountHeader, setIsSingleSheetWithAccountHeader] = useState<boolean>(false);
   const [accountNameHeader, setAccountNameHeader] = useState<string | undefined>(undefined);
@@ -1142,16 +1148,42 @@ const AdvancedLedgerAnalysis = () => {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">분석할 계정과목</label>
-                  <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accountNames.map(name => (
-                        <SelectItem key={name} value={name}>{name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Popover open={accountComboboxOpen} onOpenChange={setAccountComboboxOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={accountComboboxOpen}
+                        className="w-full max-w-md justify-between"
+                      >
+                        <span className="truncate">{selectedAccount || '계정과목 검색 또는 선택...'}</span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="계정명 검색..." />
+                        <CommandList>
+                          <CommandEmpty>검색 결과가 없습니다.</CommandEmpty>
+                          <CommandGroup>
+                            {accountNames.map((name) => (
+                              <CommandItem
+                                key={name}
+                                value={name}
+                                onSelect={() => {
+                                  setSelectedAccount(name);
+                                  setAccountComboboxOpen(false);
+                                }}
+                              >
+                                <Check className={cn('mr-2 h-4 w-4', selectedAccount === name ? 'opacity-100' : 'opacity-0')} />
+                                {name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
             </CardContent>
@@ -1228,20 +1260,44 @@ const AdvancedLedgerAnalysis = () => {
             <div className="flex items-end gap-4">
               <div className="flex-1 space-y-2">
                 <label className="text-sm font-medium">계정과목</label>
-                <Select value={selectedAccount || undefined} onValueChange={(v) => setSelectedAccount(v || '')}>
-                  <SelectTrigger className="w-full max-w-md">
-                    <SelectValue placeholder="계정과목을 선택하세요..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accountNames.length === 0 ? (
-                      <div className="py-4 px-3 text-sm text-muted-foreground text-center">불러온 계정이 없습니다. 파일을 먼저 업로드하세요.</div>
-                    ) : (
-                      accountNames.map(name => (
-                        <SelectItem key={name} value={name}>{name}</SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                <Popover open={accountComboboxOpen} onOpenChange={setAccountComboboxOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={accountComboboxOpen}
+                      className="w-full max-w-md justify-between"
+                    >
+                      <span className="truncate">{selectedAccount || '계정과목 검색 또는 선택...'}</span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="계정명 검색..." />
+                      <CommandList>
+                        <CommandEmpty>
+                          {accountNames.length === 0 ? '불러온 계정이 없습니다. 파일을 먼저 업로드하세요.' : '검색 결과가 없습니다.'}
+                        </CommandEmpty>
+                        <CommandGroup>
+                          {accountNames.map((name) => (
+                            <CommandItem
+                              key={name}
+                              value={name}
+                              onSelect={() => {
+                                setSelectedAccount(name);
+                                setAccountComboboxOpen(false);
+                              }}
+                            >
+                              <Check className={cn('mr-2 h-4 w-4', selectedAccount === name ? 'opacity-100' : 'opacity-0')} />
+                              {name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
               {selectedAccount && currentAccountData.length > 0 && (
                 <Button 

@@ -1673,21 +1673,53 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       <Dialog open={!!monthlyDrilldown} onOpenChange={(open) => !open && setMonthlyDrilldown(null)}>
         <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>
-              {monthlyDrilldown && (
-                <>
-                  {monthlyDrilldown.month} {monthlyDrilldown.side === 'debit' ? '차변' : '대변'} 상세 내역
-                  {monthlyDrilldown.vendor && monthlyDrilldown.vendor !== '(거래처 없음)' && (
+            <div className="flex items-center justify-between gap-4">
+              <DialogTitle>
+                {monthlyDrilldown && (
+                  <>
+                    {monthlyDrilldown.month} {monthlyDrilldown.side === 'debit' ? '차변' : '대변'} 상세 내역
+                    {monthlyDrilldown.vendor && monthlyDrilldown.vendor !== '(거래처 없음)' && (
+                      <span className="text-sm font-normal text-muted-foreground ml-2">
+                        · {monthlyDrilldown.vendor}
+                      </span>
+                    )}
                     <span className="text-sm font-normal text-muted-foreground ml-2">
-                      · {monthlyDrilldown.vendor}
+                      ({monthlyDrilldownRows.length}건)
                     </span>
-                  )}
-                  <span className="text-sm font-normal text-muted-foreground ml-2">
-                    ({monthlyDrilldownRows.length}건)
-                  </span>
-                </>
+                  </>
+                )}
+              </DialogTitle>
+              {monthlyDrilldown && monthlyDrilldownRows.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const keys = Object.keys(monthlyDrilldownRows[0]).filter(
+                      k => !String(k).includes('잔액') && !String(k).toLowerCase().includes('balance')
+                    );
+                    const data = monthlyDrilldownRows.map(row => {
+                      const obj: Record<string, unknown> = {};
+                      keys.forEach(k => {
+                        const v = row[k];
+                        obj[k] = v instanceof Date ? v.toISOString().split('T')[0] : v;
+                      });
+                      return obj;
+                    });
+                    const wb = XLSX.utils.book_new();
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    XLSX.utils.book_append_sheet(wb, ws, '상세내역');
+                    const side = monthlyDrilldown.side === 'debit' ? '차변' : '대변';
+                    const vendorSuffix = monthlyDrilldown.vendor && monthlyDrilldown.vendor !== '(거래처 없음)'
+                      ? `_${String(monthlyDrilldown.vendor).replace(/[/\\?*[\]]/g, '_')}` : '';
+                    XLSX.writeFile(wb, `월합계상세_${monthlyDrilldown.month}_${side}${vendorSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`);
+                    toast({ title: '다운로드 완료', description: '차변/대변 상세 내역을 엑셀 파일로 저장했습니다.' });
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  엑셀 다운로드
+                </Button>
               )}
-            </DialogTitle>
+            </div>
           </DialogHeader>
           <div className="flex-1 overflow-auto rounded border">
             {monthlyDrilldownRows.length > 0 ? (
