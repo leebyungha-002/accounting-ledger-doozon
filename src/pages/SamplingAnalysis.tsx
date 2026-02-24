@@ -63,6 +63,36 @@ const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: Ledger
   return { data: filteredData, headers };
 };
 
+// 행의 날짜 값을 Date로 변환 (시작일/종료일 필터용)
+const parseRowDate = (value: unknown): Date | null => {
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+  if (value == null || value === '') return null;
+  if (typeof value === 'number' && value > 1 && value < 50000) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const d = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
+    return !isNaN(d.getTime()) ? d : null;
+  }
+  if (typeof value === 'string') {
+    const s = String(value).trim();
+    const ymd = s.match(/^(?<y>\d{4})[-/](?<m>\d{1,2})[-/](?<d>\d{1,2})$/);
+    if (ymd?.groups) {
+      const y = parseInt(ymd.groups.y, 10);
+      const m = parseInt(ymd.groups.m, 10) - 1;
+      const day = parseInt(ymd.groups.d, 10);
+      const d = new Date(y, m, day);
+      return !isNaN(d.getTime()) ? d : null;
+    }
+    if (/^\d{8}$/.test(s)) {
+      const y = parseInt(s.slice(0, 4), 10);
+      const m = parseInt(s.slice(4, 6), 10) - 1;
+      const day = parseInt(s.slice(6, 8), 10);
+      const d = new Date(y, m, day);
+      return !isNaN(d.getTime()) ? d : null;
+    }
+  }
+  return null;
+};
+
 // 통계표 기반 샘플 크기 계산 (MUS)
 // 신뢰계수: 90% = 2.31, 95% = 3.00, 99% = 4.61
 const calculateMUSSampleSize = (
@@ -100,6 +130,8 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
   const [includeAnomalies, setIncludeAnomalies] = useState<boolean>(false);
   const [anomalyRows, setAnomalyRows] = useState<Set<number>>(new Set());
   const [anomalyRowObjects, setAnomalyRowObjects] = useState<Set<LedgerRow>>(new Set());
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   const accountData = useMemo(() => {
     if (!selectedAccount) return [];
@@ -109,17 +141,40 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
     return data.filter(row => !isSummaryRow(row));
   }, [workbook, selectedAccount]);
 
-  // MUS용 금액 합계 계산 (월계, 누계 제외)
-  const musTotalAmount = useMemo(() => {
-    if (samplingMethod !== 'mus' || accountData.length === 0) return 0;
-    
+  // 시작일/종료일 적용한 데이터 (미입력 시 전체)
+  const filteredAccountData = useMemo(() => {
+    if (accountData.length === 0) return [];
     const headers = Object.keys(accountData[0] || {});
+    const dateHeader = robustFindHeader(headers, DATE_KEYWORDS) ||
+      headers.find((h: string) => (h && (h.includes('일자') || h.includes('날짜') || h.toLowerCase().includes('date'))));
+    if (!dateHeader) return accountData;
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : null;
+    if (!start && !end) return accountData;
+    return accountData.filter(row => {
+      const d = parseRowDate(row[dateHeader]);
+      if (!d) return false;
+      if (start && d < start) return false;
+      if (end) {
+        const endEod = new Date(end);
+        endEod.setHours(23, 59, 59, 999);
+        if (d > endEod) return false;
+      }
+      return true;
+    });
+  }, [accountData, startDate, endDate]);
+
+  // MUS용 금액 합계 계산 (월계, 누계 제외, 시작일/종료일 적용)
+  const musTotalAmount = useMemo(() => {
+    if (samplingMethod !== 'mus' || filteredAccountData.length === 0) return 0;
+    
+    const headers = Object.keys(filteredAccountData[0] || {});
     const dateHeader = robustFindHeader(headers, DATE_KEYWORDS);
-    const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, accountData, dateHeader);
+    const { debitHeader, creditHeader } = findDebitCreditHeaders(headers, filteredAccountData, dateHeader);
 
     let total = 0;
     // 월계, 누계 행 제외하고 계산
-    accountData.filter(row => !isSummaryRow(row)).forEach(row => {
+    filteredAccountData.filter(row => !isSummaryRow(row)).forEach(row => {
       if (musAmountType === 'debit' && debitHeader) {
         total += Math.abs(cleanAmount(row[debitHeader]));
       } else if (musAmountType === 'credit' && creditHeader) {
@@ -130,7 +185,7 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
       }
     });
     return total;
-  }, [accountData, samplingMethod, musAmountType]);
+  }, [filteredAccountData, samplingMethod, musAmountType]);
 
   // 통계표 기반 샘플 크기 계산
   const calculatedSampleSize = useMemo(() => {
@@ -143,10 +198,18 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
   }, [samplingMethod, useStatisticalTable, materiality, musTotalAmount, confidenceLevel]);
 
   const handleSampling = () => {
-    if (!selectedAccount || accountData.length === 0) {
+    if (!selectedAccount) {
       toast({
         title: '오류',
-        description: '계정을 선택하고 데이터를 확인해주세요.',
+        description: '계정을 선택해주세요.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (filteredAccountData.length === 0) {
+      toast({
+        title: '오류',
+        description: '선택한 기간·금액 타입(차변/대변)에 해당하는 거래가 없습니다. 기간을 넓히거나 금액 타입을 변경해보세요.',
         variant: 'destructive',
       });
       return;
@@ -158,8 +221,8 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
       finalSampleSize = calculatedSampleSize;
     }
     
-    // 월계, 누계 행 제외한 데이터
-    const filteredData = accountData.filter(row => !isSummaryRow(row));
+    // 월계, 누계 행 제외한 데이터 (시작일/종료일 적용됨)
+    const filteredData = filteredAccountData.filter(row => !isSummaryRow(row));
     
     // 이상거래 포함 옵션이 활성화되어 있으면 이상거래 먼저 탐지 및 포함
     let anomalySamples: LedgerRow[] = [];
@@ -566,6 +629,28 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* 기간 선택 (시작일/종료일) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>시작일</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">기간을 제한하려면 선택 (미선택 시 전체)</p>
+            </div>
+            <div className="space-y-2">
+              <Label>종료일</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">기간을 제한하려면 선택 (미선택 시 전체)</p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* 계정 선택 */}
             <div className="space-y-2">
@@ -582,7 +667,9 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
               </Select>
               {selectedAccount && (
                 <p className="text-xs text-muted-foreground">
-                  전체: {accountData.length.toLocaleString()}건
+                  {startDate || endDate
+                    ? `기간 적용: ${filteredAccountData.length.toLocaleString()}건 (전체 ${accountData.length.toLocaleString()}건)`
+                    : `전체: ${accountData.length.toLocaleString()}건`}
                 </p>
               )}
             </div>
@@ -615,7 +702,7 @@ export const SamplingAnalysis: React.FC<SamplingAnalysisProps> = ({
                 value={sampleSize}
                 onChange={(e) => setSampleSize(e.target.value)}
                 min="1"
-                max={accountData.length}
+                max={filteredAccountData.length}
                 disabled={samplingMethod === 'mus' && useStatisticalTable && calculatedSampleSize !== null}
               />
               {samplingMethod === 'mus' && useStatisticalTable && calculatedSampleSize !== null ? (

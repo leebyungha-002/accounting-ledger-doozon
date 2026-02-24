@@ -276,19 +276,27 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
   const accountInputValue = (selectedAccount.split(',').pop() ?? '').trim();
   const vendorInputValue = (searchVendor.split(',').pop() ?? '').trim();
 
-  // 거래처 미입력 시 상세 결과 테이블에서 거래처 관련 열 숨김 (parseMultiInput 의존 제거로 초기화 순서 오류 방지)
+  // 적요 값 (적요/적요명/내용/비고 등에서 추출)
+  const descriptionValue = (row: LedgerRow): string => {
+    const v = row['적요'] ?? row['적요명'] ?? row['내용'] ?? row['비고'] ?? '';
+    return typeof v === 'string' ? v : String(v ?? '');
+  };
+
+  // 상세 결과 테이블 컬럼: 계정과목·적요를 앞에 두고, 잔액/balance 제외, 거래처명 등 모든 컬럼 표시
   const hasVendorSearch = (searchVendor || '').split(',').map(s => s.trim()).filter(Boolean).length > 0;
+  const descColumnKeys = ['적요', '적요명', '내용', '비고'];
   const detailTableHeaders = useMemo(() => {
     const keys = Object.keys(searchResults[0] || {});
-    const isVendorKey = (k: string) =>
-      k && (k.includes('거래처') || k.includes('업체') || k.includes('회사') || k.toLowerCase().includes('vendor') || k.toLowerCase().includes('customer'));
-    return keys.filter(
+    const filtered = keys.filter(
       key =>
         !key.includes('잔액') &&
-        !key.toLowerCase().includes('balance') &&
-        (hasVendorSearch || !isVendorKey(key))
+        !key.toLowerCase().includes('balance')
     );
-  }, [searchResults, hasVendorSearch]);
+    const rest = filtered.filter(
+      k => k !== '계정과목' && k !== '계정명' && k !== '계정' && !descColumnKeys.includes(k)
+    );
+    return ['계정과목', '적요', ...rest];
+  }, [searchResults]);
 
   // 표시 방식 변경 시 드릴다운 초기화
   useEffect(() => {
@@ -431,7 +439,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       .sort((a, b) => (b.차변 + b.대변) - (a.차변 + a.대변));
   }, [searchResults, displayMode]);
 
-  // 월합계 데이터 계산 — 거래처별로 구분
+  // 월합계 데이터 계산 — 거래처 입력 시 거래처별 구분, 미입력 시 계정만 월별 집계
   const monthlyData = useMemo(() => {
     if (displayMode !== 'monthly' || searchResults.length === 0) return null;
 
@@ -444,25 +452,65 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
 
     if (!dateHeader) return null;
 
-    const vendorMonthMap = new Map<string, Map<string, { debit: number; credit: number; count: number }>>();
+    const rowType: { 거래처: string; 월: string; 차변: number; 대변: number; 잔액: number; 건수: number; isSubtotal?: boolean; isTotal?: boolean }[] = [];
 
+    if (!hasVendorSearch) {
+      // 거래처 미입력: 계정만 월별 집계 (거래처 열 없음)
+      const monthMap = new Map<string, { debit: number; credit: number; count: number }>();
+      searchResults.forEach(row => {
+        let date = row[dateHeader];
+        if (!(date instanceof Date)) date = parseDate(date);
+        if (!(date instanceof Date)) return;
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
+        const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
+        if (!monthMap.has(monthKey)) monthMap.set(monthKey, { debit: 0, credit: 0, count: 0 });
+        const d = monthMap.get(monthKey)!;
+        d.debit += debit;
+        d.credit += credit;
+        d.count++;
+      });
+      const months = Array.from(monthMap.keys()).sort();
+      let grandDebit = 0, grandCredit = 0, grandCount = 0;
+      months.forEach(monthKey => {
+        const d = monthMap.get(monthKey)!;
+        rowType.push({
+          거래처: '',
+          월: monthKey,
+          차변: d.debit,
+          대변: d.credit,
+          잔액: d.debit - d.credit,
+          건수: d.count,
+        });
+        grandDebit += d.debit;
+        grandCredit += d.credit;
+        grandCount += d.count;
+      });
+      rowType.push({
+        거래처: '',
+        월: '합계',
+        차변: grandDebit,
+        대변: grandCredit,
+        잔액: grandDebit - grandCredit,
+        건수: grandCount,
+        isTotal: true,
+      });
+      return rowType;
+    }
+
+    // 거래처 입력 시: 거래처별 → 월별 구분
+    const vendorMonthMap = new Map<string, Map<string, { debit: number; credit: number; count: number }>>();
     searchResults.forEach(row => {
       let date = row[dateHeader];
       if (!(date instanceof Date)) date = parseDate(date);
       if (!(date instanceof Date)) return;
-
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const vendor = vendorHeader ? String(row[vendorHeader] || '').trim() || '(거래처 없음)' : '(거래처 없음)';
       const debit = debitHeader ? cleanAmount(row[debitHeader]) : 0;
       const credit = creditHeader ? cleanAmount(row[creditHeader]) : 0;
-
-      if (!vendorMonthMap.has(vendor)) {
-        vendorMonthMap.set(vendor, new Map());
-      }
+      if (!vendorMonthMap.has(vendor)) vendorMonthMap.set(vendor, new Map());
       const monthMap = vendorMonthMap.get(vendor)!;
-      if (!monthMap.has(monthKey)) {
-        monthMap.set(monthKey, { debit: 0, credit: 0, count: 0 });
-      }
+      if (!monthMap.has(monthKey)) monthMap.set(monthKey, { debit: 0, credit: 0, count: 0 });
       const data = monthMap.get(monthKey)!;
       data.debit += debit;
       data.credit += credit;
@@ -472,7 +520,6 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     const rows: { 거래처: string; 월: string; 차변: number; 대변: number; 잔액: number; 건수: number; isSubtotal?: boolean; isTotal?: boolean }[] = [];
     const vendors = Array.from(vendorMonthMap.keys()).sort();
     let grandDebit = 0, grandCredit = 0, grandCount = 0;
-
     vendors.forEach(v => {
       const monthMap = vendorMonthMap.get(v)!;
       const months = Array.from(monthMap.keys()).sort();
@@ -504,7 +551,6 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       grandCredit += subCredit;
       grandCount += subCount;
     });
-
     rows.push({
       거래처: '',
       월: '합계',
@@ -514,9 +560,8 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       건수: grandCount,
       isTotal: true,
     });
-
     return rows;
-  }, [searchResults, displayMode]);
+  }, [searchResults, displayMode, hasVendorSearch]);
 
   // 월합계에서 차변/대변 클릭 시 해당 월·해당 측(·거래처) 상세 내역
   const monthlyDrilldownRows = useMemo(() => {
@@ -634,13 +679,18 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       grandCount += 1;
     });
 
+    const descKeys = ['적요', '적요명', '내용', '비고'];
+    const filteredHeaders = headers.filter(k => !k.includes('잔액') && !k.toLowerCase().includes('balance'));
+    const restHeaders = filteredHeaders.filter(
+      k => k !== '계정과목' && k !== '계정명' && k !== '계정' && !descKeys.includes(k)
+    );
     return {
       accountOrder,
       byAccount,
       grandDebit,
       grandCredit,
       grandCount,
-      headers: headers.filter(k => !k.includes('잔액') && !k.toLowerCase().includes('balance')),
+      headers: ['계정과목', '적요', ...restHeaders],
       debitHeader: debitHeader ?? null,
       creditHeader: creditHeader ?? null,
     };
@@ -839,11 +889,15 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     const wb = XLSX.utils.book_new();
     
     if (displayMode === 'monthly' && monthlyData) {
-      // 월합계 다운로드 — 계정명 컬럼 추가
+      // 월합계 다운로드 — 계정명 컬럼 추가, 거래처 미입력 시 거래처 열 제외
       const accountLabel = parseMultiInput(selectedAccount).length > 0
         ? parseMultiInput(selectedAccount).join(', ')
         : '전체';
-      const monthlyWithAccount = monthlyData.map(row => ({ 계정명: accountLabel, ...row }));
+      const monthlyWithAccount = monthlyData.map(row => {
+        const r: Record<string, unknown> = { 계정명: accountLabel, 월: row.월, 차변: row.차변, 대변: row.대변, 잔액: row.잔액, 건수: row.건수 };
+        if (hasVendorSearch) r.거래처 = row.거래처;
+        return r;
+      });
       const ws = XLSX.utils.json_to_sheet(monthlyWithAccount);
       XLSX.utils.book_append_sheet(wb, ws, '월합계');
       XLSX.writeFile(wb, `거래검색_월합계_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -853,13 +907,35 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
       XLSX.utils.book_append_sheet(wb, ws, '거래처별합계');
       XLSX.writeFile(wb, `거래검색_거래처별합계_${new Date().toISOString().split('T')[0]}.xlsx`);
     } else {
-      // 상세내역 다운로드 - 계정명을 첫 번째 컬럼으로 추가
+      // 상세내역 다운로드 - 계정과목을 첫 번째 컬럼으로 포함 (화면과 동일한 컬럼 순서)
+      const accountValue = (row: LedgerRow): string => {
+        const v = row['계정과목'] ?? row['계정명'] ?? row['계정'] ?? '';
+        return typeof v === 'string' ? v : String(v ?? '');
+      };
+      const descriptionValueExport = (row: LedgerRow): string => {
+        const v = row['적요'] ?? row['적요명'] ?? row['내용'] ?? row['비고'] ?? '';
+        return typeof v === 'string' ? v : String(v ?? '');
+      };
+      const rawKeys = Object.keys(searchResults[0] || {});
+      const detailKeys = rawKeys.filter(
+        key =>
+          !key.includes('잔액') &&
+          !key.toLowerCase().includes('balance')
+      );
+      const descKeysExport = ['적요', '적요명', '내용', '비고'];
+      const restKeys = detailKeys.filter(
+        k => k !== '계정과목' && k !== '계정명' && k !== '계정' && !descKeysExport.includes(k)
+      );
+      const exportHeaders = ['계정과목', '적요', ...restKeys];
       const dataWithAccount = searchResults.map(row => {
-        const accountName = row['계정과목'] || '';
-        const result: any = { '계정과목': accountName };
-        Object.keys(row).forEach(key => {
-          if (key !== '계정과목') {
-            result[key] = row[key];
+        const result: Record<string, unknown> = {};
+        exportHeaders.forEach(h => {
+          if (h === '계정과목') {
+            result[h] = accountValue(row);
+          } else if (h === '적요') {
+            result[h] = descriptionValueExport(row);
+          } else {
+            result[h] = row[h];
           }
         });
         return result;
@@ -1473,7 +1549,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>거래처</TableHead>
+                          {hasVendorSearch && <TableHead>거래처</TableHead>}
                           <TableHead>월</TableHead>
                           <TableHead className="text-right">차변</TableHead>
                           <TableHead className="text-right">대변</TableHead>
@@ -1485,16 +1561,17 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                         {monthlyData.map((row, idx) => {
                           const isDataRow = !row.isSubtotal && !row.isTotal;
                           const rowClass = row.isTotal ? 'bg-muted font-bold' : row.isSubtotal ? 'bg-muted/70 font-medium' : '';
+                          const drillVendor = hasVendorSearch ? row.거래처 : undefined;
                           return (
                             <TableRow key={idx} className={rowClass}>
-                              <TableCell className="font-medium">{row.거래처}</TableCell>
+                              {hasVendorSearch && <TableCell className="font-medium">{row.거래처}</TableCell>}
                               <TableCell className="font-medium">{row.월}</TableCell>
                               <TableCell
                                 className={cn(
                                   'text-right',
                                   isDataRow && 'cursor-pointer hover:bg-muted hover:underline'
                                 )}
-                                onClick={isDataRow ? () => setMonthlyDrilldown({ month: row.월, side: 'debit', vendor: row.거래처 }) : undefined}
+                                onClick={isDataRow ? () => setMonthlyDrilldown({ month: row.월, side: 'debit', vendor: drillVendor }) : undefined}
                               >
                                 {row.차변.toLocaleString()}
                               </TableCell>
@@ -1503,7 +1580,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                                   'text-right',
                                   isDataRow && 'cursor-pointer hover:bg-muted hover:underline'
                                 )}
-                                onClick={isDataRow ? () => setMonthlyDrilldown({ month: row.월, side: 'credit', vendor: row.거래처 }) : undefined}
+                                onClick={isDataRow ? () => setMonthlyDrilldown({ month: row.월, side: 'credit', vendor: drillVendor }) : undefined}
                               >
                                 {row.대변.toLocaleString()}
                               </TableCell>
@@ -1562,7 +1639,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                                         return (
                                           <TableRow key={`${account}-${vendor}-${idx}`}>
                                             {headers.map((key, j) => {
-                                              const val = row[key];
+                                              const val = key === '적요' ? descriptionValue(row) : row[key];
                                               const isAmountColumn = key.includes('차변') || key.includes('대변') || key.includes('금액')
                                                 || key.toLowerCase().includes('amount') || key.toLowerCase().includes('debit') || key.toLowerCase().includes('credit');
                                               const isNumber = typeof val === 'number';
@@ -1620,7 +1697,7 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                           .map((row, idx) => (
                               <TableRow key={idx}>
                                 {detailTableHeaders.map((key, j) => {
-                                  const val = row[key];
+                                  const val = key === '적요' ? descriptionValue(row) : row[key];
                                   const isAmountColumn = key.includes('차변') || 
                                         key.includes('대변') || 
                                         key.includes('금액') ||
