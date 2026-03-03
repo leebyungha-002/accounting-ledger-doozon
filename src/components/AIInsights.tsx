@@ -11,6 +11,8 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import html2canvas from 'html2canvas';
 import { 
   JournalEntry, 
   GeneralAnalysisResult, 
@@ -1796,7 +1798,82 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     exportToExcel(data, "계정별요약", "Sheet1", [20, 10, 15, 15, 15]);
   };
 
-  // 월별 트렌드 그래프 PDF 다운로드 함수
+  // 월별 트렌드 그래프 엑셀 다운로드 (벤포드 분석과 동일하게 차트를 엑셀 시트에 이미지로 삽입)
+  const exportChartToExcel = async (chartRef: React.RefObject<HTMLDivElement>, fileName: string, chartTitle: string) => {
+    if (!chartRef.current) {
+      toast({
+        title: '오류',
+        description: '그래프를 찾을 수 없습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const chartContainer = chartRef.current.querySelector('.recharts-responsive-container') as HTMLElement | null;
+    if (!chartContainer) {
+      toast({
+        title: '오류',
+        description: '그래프 영역을 찾을 수 없습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const loadingToast = toast({
+      title: '엑셀 생성 중',
+      description: '그래프를 엑셀 파일로 저장하는 중입니다...',
+    });
+
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('월별 트렌드', { properties: { defaultRowHeight: 15 } });
+
+      worksheet.getCell('A1').value = chartTitle;
+      worksheet.getCell('A1').font = { bold: true, size: 14 };
+
+      const canvas = await html2canvas(chartContainer, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+      });
+      const imageBase64 = canvas.toDataURL('image/png');
+      const imageId = workbook.addImage({
+        base64: imageBase64,
+        extension: 'png',
+      });
+
+      worksheet.addImage(imageId, {
+        tl: { col: 0, row: 2 },
+        ext: { width: 800, height: 400 },
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${fileName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: '다운로드 완료',
+        description: '그래프가 엑셀 파일로 저장되었습니다.',
+      });
+    } catch (error: any) {
+      console.error('월별 트렌드 엑셀 다운로드 오류:', error);
+      toast({
+        title: '오류',
+        description: error?.message || '엑셀 저장 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // 월별 트렌드 그래프 PDF 다운로드 함수 (레거시 - 엑셀 다운로드 사용 권장)
   const exportChartToPDF = async (chartRef: React.RefObject<HTMLDivElement>, fileName: string, chartTitle: string) => {
     if (!chartRef.current) {
       toast({
@@ -1807,11 +1884,14 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       return;
     }
 
-    // 로딩 토스트 표시
     const loadingToast = toast({
       title: 'PDF 생성 중',
       description: '그래프를 PDF로 변환하는 중입니다. 잠시만 기다려주세요...',
     });
+
+    let chartWrapperForRestore: HTMLElement | null = null;
+    let originalMinWidth: string | null = null;
+    let originalWidth: string | null = null;
 
     try {
       // html2canvas와 jsPDF를 동적으로 import
@@ -1883,14 +1963,26 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       });
       
       // 추가 대기 시간 (한글 폰트가 완전히 렌더링될 때까지)
-      // 그래프가 완전히 렌더링되도록 충분한 시간 제공
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // SVG를 먼저 이미지로 변환하는 함수
+      // 11·12월이 잘리지 않도록 차트 영역을 넓힘 (SVG·html2canvas 공통)
+      chartWrapperForRestore = chartRef.current?.querySelector('.recharts-responsive-container')?.parentElement as HTMLElement | null;
+      if (chartWrapperForRestore) {
+        originalMinWidth = chartWrapperForRestore.style.minWidth || null;
+        originalWidth = chartWrapperForRestore.style.width || null;
+        chartWrapperForRestore.style.minWidth = '1280px';
+        chartWrapperForRestore.style.width = '1280px';
+        await new Promise(resolve => setTimeout(resolve, 450));
+      }
+
+      // SVG를 먼저 이미지로 변환하는 함수 (한글 보존: UTF-8 선언 추가)
       const svgToImage = (svgElement: SVGSVGElement): Promise<HTMLImageElement> => {
         return new Promise((resolve, reject) => {
           try {
-            const svgData = new XMLSerializer().serializeToString(svgElement);
+            let svgData = new XMLSerializer().serializeToString(svgElement);
+            if (!svgData.startsWith('<?xml')) {
+              svgData = '<?xml version="1.0" encoding="UTF-8"?>' + svgData;
+            }
             const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
             const url = URL.createObjectURL(svgBlob);
             
@@ -1910,14 +2002,19 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
         });
       };
 
-      // SVG 요소 찾기
-      const svgElement = chartRef.current?.querySelector('svg') as SVGSVGElement;
+      // SVG 요소 찾기 (차트 영역 내부의 SVG만 사용)
+      const chartContainer = chartRef.current?.querySelector('.recharts-responsive-container');
+      const svgElement = (chartContainer || chartRef.current)?.querySelector('svg') as SVGSVGElement | null;
       if (svgElement) {
-        // SVG의 크기 확인
         const bbox = svgElement.getBBox();
-        const svgWidth = Math.max(bbox.width + bbox.x, svgElement.clientWidth || 800);
-        const svgHeight = Math.max(bbox.height + bbox.y, svgElement.clientHeight || 400);
+        const rect = svgElement.getBoundingClientRect();
+        const svgWidth = Math.max(bbox.width + bbox.x, rect.width, svgElement.clientWidth || 800);
+        const svgHeight = Math.max(bbox.height + bbox.y, rect.height, svgElement.clientHeight || 400);
         
+        // 차트 크기가 너무 작으면 SVG 변환 건너뛰고 html2canvas 사용
+        if (svgWidth < 100 || svgHeight < 100) {
+          console.warn('SVG 크기가 너무 작음, html2canvas 폴백 사용:', { svgWidth, svgHeight });
+        } else {
         // SVG에 명시적 크기 설정
         svgElement.setAttribute('width', String(svgWidth));
         svgElement.setAttribute('height', String(svgHeight));
@@ -1935,9 +2032,10 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
           
           console.log(`텍스트 요소 ${idx + 1}: "${textContent}" - Fill: ${currentFill} / Computed: ${computedStyle.fill}`);
           
-          // 폰트 설정
-          svgTextEl.setAttribute('font-family', 'Arial, sans-serif');
-          svgTextEl.style.fontFamily = 'Arial, sans-serif';
+          // 한글 지원 폰트 (SVG 내 텍스트가 깨지지 않도록)
+          const koreanFont = 'Malgun Gothic, 맑은 고딕, Apple SD Gothic Neo, Noto Sans KR, sans-serif';
+          svgTextEl.setAttribute('font-family', koreanFont);
+          svgTextEl.style.fontFamily = koreanFont;
           
           // 텍스트가 있으면 색상 명시적 설정
           if (textContent.trim()) {
@@ -1984,17 +2082,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
             const pdf = new jsPDF('p', 'mm', 'a4');
             let position = 10;
 
-            // 제목 추가
-            if (chartTitle) {
-              pdf.setFontSize(16);
-              pdf.setFont('helvetica', 'bold');
-              try {
-                pdf.text(chartTitle, 10, position);
-                position += 8; // 제목 아래 여백
-              } catch (titleError) {
-                console.warn('제목 추가 실패 (한글 폰트 미지원 가능):', titleError);
-              }
-            }
+            // 제목은 한글 시 jsPDF 기본 폰트에서 깨지므로 이미지에만 포함 (스킵)
 
             // 이미지 추가
             pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
@@ -2010,7 +2098,10 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
 
             const dateStr = new Date().toISOString().split('T')[0];
             pdf.save(`${fileName}_${dateStr}.pdf`);
-
+            if (chartWrapperForRestore) {
+              chartWrapperForRestore.style.minWidth = originalMinWidth ?? '';
+              chartWrapperForRestore.style.width = originalWidth ?? '';
+            }
             toast({
               title: '성공',
               description: 'PDF가 다운로드되었습니다.',
@@ -2021,28 +2112,40 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
           console.warn('SVG 직접 변환 실패, html2canvas 사용:', svgError);
           // SVG 직접 변환이 실패하면 html2canvas 사용
         }
+        }
       }
 
-      // html2canvas 사용 (폴백)
-      // 원본 요소에 폰트 강제 적용 (캡처 전)
+      // html2canvas 사용 (폴백): 차트 영역만 캡처 (버튼/헤더 제외, 상단에서 이미 차트 넓힘 적용됨)
       const originalElement = chartRef.current;
-      if (originalElement) {
-        // SVG 요소의 폰트도 강제 적용
-        const svgElements = originalElement.querySelectorAll('svg text, svg tspan');
+      const chartOnlyElement = originalElement?.querySelector('.recharts-responsive-container') as HTMLElement | null;
+      const captureTarget = chartOnlyElement || originalElement;
+
+      if (captureTarget) {
+        const koreanFont = 'Malgun Gothic, 맑은 고딕, Apple SD Gothic Neo, Noto Sans KR, sans-serif';
+        const svgElements = captureTarget.querySelectorAll('svg text, svg tspan');
         svgElements.forEach((el) => {
           const svgEl = el as SVGElement;
-          svgEl.setAttribute('font-family', 'Arial, sans-serif');
-          // 한글 폰트를 시스템 폰트로 설정
+          svgEl.setAttribute('font-family', koreanFont);
           const computedStyle = window.getComputedStyle(svgEl);
-          svgEl.style.fontFamily = computedStyle.fontFamily || 'Arial, sans-serif';
+          svgEl.style.fontFamily = computedStyle.fontFamily || koreanFont;
         });
-        
-        // 잠시 대기하여 폰트 적용 확인
-        await new Promise(resolve => setTimeout(resolve, 800));
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
 
-      // 그래프 영역을 이미지로 변환
-      const canvas = await html2canvas(chartRef.current, {
+      if (!captureTarget) {
+        if (chartWrapperForRestore) {
+          chartWrapperForRestore.style.minWidth = originalMinWidth ?? '';
+          chartWrapperForRestore.style.width = originalWidth ?? '';
+        }
+        toast({
+          title: '오류',
+          description: '그래프 영역을 찾을 수 없습니다.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const canvas = await html2canvas(captureTarget, {
         backgroundColor: '#ffffff',
         scale: 2,
         logging: false,
@@ -2083,8 +2186,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
             
             // 텍스트가 있으면 강제로 스타일 적용
             if (textContent.trim()) {
-              // 폰트 설정
-              svgEl.setAttribute('font-family', computedStyle.fontFamily || 'Arial, sans-serif');
+              const koreanFont = 'Malgun Gothic, 맑은 고딕, Apple SD Gothic Neo, Noto Sans KR, sans-serif';
+              svgEl.setAttribute('font-family', koreanFont);
               svgEl.setAttribute('font-size', computedStyle.fontSize || svgEl.getAttribute('font-size') || '12px');
               
               // 색상 설정 - 투명하거나 없는 경우 검은색으로
@@ -2106,15 +2209,22 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
             }
           });
           
-          // SVG 전체에 기본 스타일 적용
+          // SVG 전체에 한글 지원 폰트 적용
+          const koreanFont = 'Malgun Gothic, 맑은 고딕, Apple SD Gothic Neo, Noto Sans KR, sans-serif';
           const allSvgs = clonedDoc.querySelectorAll('svg');
           allSvgs.forEach((svg) => {
-            (svg as SVGElement).setAttribute('style', 'font-family: Arial, sans-serif;');
+            (svg as SVGElement).setAttribute('style', `font-family: ${koreanFont};`);
           });
           
           console.log('✅ SVG 텍스트 처리 완료');
         },
       });
+
+      // 캡처 후 차트 영역 원래 크기로 복원
+      if (chartWrapperForRestore) {
+        chartWrapperForRestore.style.minWidth = originalMinWidth ?? '';
+        chartWrapperForRestore.style.width = originalWidth ?? '';
+      }
 
       const imgData = canvas.toDataURL('image/png');
       const imgWidth = 210; // A4 width in mm
@@ -2137,23 +2247,8 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
         return;
       }
 
-      // 제목 추가
-      let position = 10;
-      if (chartTitle) {
-        pdf.setFontSize(16);
-        pdf.setFont('helvetica', 'bold');
-        // 한글 제목을 텍스트로 추가 (간단한 방법)
-        // 한글이 깨질 수 있으므로 제목을 이미지로 변환하거나, 
-        // 제목이 포함된 영역을 함께 캡처하는 것이 더 나음
-        // 일단 제목 텍스트 추가 시도
-        try {
-          pdf.text(chartTitle, 10, position);
-          position += 8; // 제목 아래 여백
-        } catch (titleError) {
-          console.warn('제목 추가 실패 (한글 폰트 미지원 가능):', titleError);
-          // 제목 추가 실패해도 계속 진행
-        }
-      }
+      // 제목은 한글 시 jsPDF 기본 폰트에서 깨지므로 생략 (파일명으로 구분)
+      const position = 10;
 
       // 이미지 추가
       try {
@@ -2187,12 +2282,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
         });
       }
     } catch (error: any) {
+      if (chartWrapperForRestore) {
+        chartWrapperForRestore.style.minWidth = originalMinWidth ?? '';
+        chartWrapperForRestore.style.width = originalWidth ?? '';
+      }
       console.error('PDF 생성 오류:', error);
-      console.error('에러 상세:', {
-        message: error?.message,
-        stack: error?.stack,
-        name: error?.name,
-      });
       toast({
         title: '오류',
         description: error?.message || 'PDF 생성 중 오류가 발생했습니다. 콘솔을 확인해주세요.',
@@ -4432,15 +4526,15 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => exportChartToPDF(
+                                onClick={() => exportChartToExcel(
                                   trendAmountChartRef,
                                   '월별거래금액추이',
                                   '월별 거래 금액 추이'
                                 )}
                                 className="flex items-center gap-1"
                               >
-                                <FileDown className="w-3.5 h-3.5" />
-                                PDF 다운로드
+                                <Download className="w-3.5 h-3.5" />
+                                엑셀 다운로드
                               </Button>
                             </div>
                           </CardHeader>
@@ -4472,15 +4566,15 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => exportChartToPDF(
+                                onClick={() => exportChartToExcel(
                                   trendCountChartRef,
                                   '월별거래건수',
                                   '월별 거래 건수'
                                 )}
                                 className="flex items-center gap-1"
                               >
-                                <FileDown className="w-3.5 h-3.5" />
-                                PDF 다운로드
+                                <Download className="w-3.5 h-3.5" />
+                                엑셀 다운로드
                               </Button>
                             </div>
                           </CardHeader>
