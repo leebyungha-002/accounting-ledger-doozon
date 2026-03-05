@@ -2248,7 +2248,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       }
 
       // 제목은 한글 시 jsPDF 기본 폰트에서 깨지므로 생략 (파일명으로 구분)
-      const position = 10;
+      let position = 10;
 
       // 이미지 추가
       try {
