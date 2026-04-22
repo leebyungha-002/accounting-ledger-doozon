@@ -852,7 +852,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     // 1. 선택한 계정명과 차변/대변에 해당하는 전표번호 찾기
     const targetEntries = analysisEntries.filter(e => {
       if (e.accountName !== counterSearchTerm) return false;
-      return counterSearchSide === '차변' ? e.debit > 0 : e.credit > 0;
+      return counterSearchSide === '차변' ? e.debit !== 0 : e.credit !== 0;
     });
 
     if (targetEntries.length === 0) {
@@ -907,7 +907,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
 
       const targetInGroup = group.filter(e => {
         if (e.accountName !== counterSearchTerm) return false;
-        return counterSearchSide === '차변' ? e.debit > 0 : e.credit > 0;
+        return counterSearchSide === '차변' ? e.debit !== 0 : e.credit !== 0;
       });
 
       if (targetInGroup.length === 0) return;
@@ -925,9 +925,9 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
           return false;
         }
         
-        // 반대편만 추출 (차변 선택시: credit > 0인 항목, 대변 선택시: debit > 0인 항목)
-        if (oppositeSide === '대변') return e.credit > 0;
-        return e.debit > 0;
+        // 반대편만 추출 (차변 선택시: credit !== 0인 항목, 대변 선택시: debit !== 0인 항목)
+        if (oppositeSide === '대변') return e.credit !== 0;
+        return e.debit !== 0;
       });
 
       // 이 전표번호에서 발견된 상대계정들 (계정명과 금액 함께 저장)
@@ -989,7 +989,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
   // Helper to get counter name for a specific entry
   const getCounterAccountForEntry = (entry: JournalEntry, side: '차변' | '대변') => {
     const siblings = analysisEntries.filter(e => e.entryNumber === entry.entryNumber);
-    const counters = siblings.filter(s => side === '차변' ? s.credit > 0 : s.debit > 0);
+    const counters = siblings.filter(s => side === '차변' ? s.credit !== 0 : s.debit !== 0);
     const names = Array.from(new Set(counters.map(c => c.accountName)));
     return names.join(', ');
   };
@@ -1006,13 +1006,13 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       const group = analysisEntries.filter(e => String(e.entryNumber) === entryNumber);
       const targetInGroup = group.filter(e => {
         if (e.accountName !== counterResult.accountName) return false;
-        return counterResult.type === '차변' ? e.debit > 0 : e.credit > 0;
+        return counterResult.type === '차변' ? e.debit !== 0 : e.credit !== 0;
       });
       if (targetInGroup.length === 0) return;
       const oppositeSide = counterResult.type === '차변' ? '대변' : '차변';
       const counterInGroup = group.filter(e => {
         if (e.accountName !== counterDrilldownAccount) return false;
-        return oppositeSide === '대변' ? e.credit > 0 : e.debit > 0;
+        return oppositeSide === '대변' ? e.credit !== 0 : e.debit !== 0;
       });
       if (targetInGroup.length > 0 && counterInGroup.length > 0) drilldownEntries.push(...counterInGroup);
     });
@@ -4540,11 +4540,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                           </CardHeader>
                           <CardContent>
                             <div>
-                              <ResponsiveContainer width="100%" height={400}>
-                                <LineChart data={monthlyTrendData}>
+                              <ResponsiveContainer width="100%" height={420}>
+                                <LineChart data={monthlyTrendData} margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
                                   <CartesianGrid strokeDasharray="3 3" />
                                   <XAxis dataKey="month" />
-                                  <YAxis />
+                                  <YAxis width={90} tickFormatter={(value: number) => value.toLocaleString()} />
                                   <Tooltip formatter={(value: number) => value.toLocaleString()} />
                                   <Legend />
                                   <Line type="monotone" dataKey="debit" stroke="#3b82f6" name="차변" strokeWidth={2} />
@@ -4580,11 +4580,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                           </CardHeader>
                           <CardContent>
                             <div>
-                              <ResponsiveContainer width="100%" height={300}>
-                                <BarChart data={monthlyTrendData}>
+                              <ResponsiveContainer width="100%" height={320}>
+                                <BarChart data={monthlyTrendData} margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
                                   <CartesianGrid strokeDasharray="3 3" />
                                   <XAxis dataKey="month" />
-                                  <YAxis />
+                                  <YAxis width={60} tickFormatter={(value: number) => value.toLocaleString()} />
                                   <Tooltip formatter={(value: number) => value.toLocaleString()} />
                                   <Legend />
                                   <Bar dataKey="debitCount" fill="#3b82f6" name="차변 건수" />

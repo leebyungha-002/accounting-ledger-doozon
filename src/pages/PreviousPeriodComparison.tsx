@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Scale, TrendingUp, TrendingDown, Download, Check, ChevronsUpDown } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { getDataFromSheet as getDataFromSheetExcel } from '@/lib/excelHelpers';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 type LedgerRow = { [key: string]: string | number | Date | undefined };
@@ -51,13 +52,32 @@ const robustFindHeader = (headers: string[], keywords: string[]): string | undef
   });
 };
 
+// 헤더가 첫 행에 있는지 확인 (차변/대변/거래처/일자 등 계정별원장 특유 키워드가 있으면 유효한 헤더로 간주)
+const hasLedgerHeaders = (headers: string[]): boolean => {
+  const joined = headers.map(h => String(h || '').toLowerCase().replace(/\s/g, '')).join(' ');
+  return (
+    joined.includes('차변') || joined.includes('대변') ||
+    joined.includes('거래처') || joined.includes('거래처명') ||
+    joined.includes('일자') || joined.includes('날짜') ||
+    joined.includes('debit') || joined.includes('credit')
+  );
+};
+
+// 계정별원장 시트 읽기: 전기처럼 첫 행이 헤더인 경우를 우선 처리, 실패 시 excelHelpers 헤더 탐지 사용
 const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data: LedgerRow[], headers: string[] } => {
   if (!worksheet) return { data: [], headers: [] };
-  
-  const rawData = XLSX.utils.sheet_to_json<LedgerRow>(worksheet);
-  const headers = rawData.length > 0 ? Object.keys(rawData[0]) : [];
-  
-  return { data: rawData, headers };
+
+  // 1) 첫 행 = 헤더로 시도 (전기 계정별원장이 보통 이 구조)
+  const rawFirst = XLSX.utils.sheet_to_json<LedgerRow>(worksheet);
+  const headersFirst = rawFirst.length > 0 ? Object.keys(rawFirst[0]) : [];
+  if (rawFirst.length > 0 && hasLedgerHeaders(headersFirst)) {
+    return { data: rawFirst, headers: headersFirst };
+  }
+
+  // 2) 실패 시 헤더 행 자동 탐지 (당기 등 제목 행이 있는 경우)
+  const result = getDataFromSheetExcel(worksheet);
+  const headers = result.orderedHeaders?.length ? result.orderedHeaders : result.headers;
+  return { data: result.data, headers };
 };
 
 export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> = ({
@@ -159,18 +179,21 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
       전기헤더목록: previousHeaders
     });
 
-    const vendorHeader = robustFindHeader(currentHeaders, ['거래처', '업체', '회사', 'vendor', 'customer']) ||
+    const vendorHeader = robustFindHeader(currentHeaders, ['거래처명', '거래처', '업체', '회사', 'vendor', 'customer']) ||
                          currentHeaders.find(h => 
                            h.includes('거래처') || h.includes('업체') || h.includes('회사') || 
                            h.toLowerCase().includes('vendor') || h.toLowerCase().includes('customer')
                          );
-    const previousVendorHeader = robustFindHeader(previousHeaders, ['거래처', '업체', '회사', 'vendor', 'customer']) ||
+    const previousVendorHeader = robustFindHeader(previousHeaders, ['거래처명', '거래처', '업체', '회사', 'vendor', 'customer']) ||
                                 previousHeaders.find(h => 
                                   h.includes('거래처') || h.includes('업체') || h.includes('회사') || 
                                   h.toLowerCase().includes('vendor') || h.toLowerCase().includes('customer')
                                 );
 
     if (!vendorHeader) return [];
+
+    // 거래처가 비어 있는 경우 표시용 라벨 (전기이월 행 등도 집계되도록)
+    const EMPTY_VENDOR_LABEL = '(거래처 없음)';
 
     // 거래처별 금액 집계
     const vendorMap = new Map<string, {
@@ -182,8 +205,7 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
 
     // 당기 데이터 처리
       currentData.forEach(row => {
-      const vendor = String(row[vendorHeader] || '').trim();
-      if (!vendor || vendor === '') return;
+      const vendor = String(row[vendorHeader] || '').trim() || EMPTY_VENDOR_LABEL;
 
       if (!vendorMap.has(vendor)) {
         vendorMap.set(vendor, {
@@ -220,8 +242,7 @@ export const PreviousPeriodComparison: React.FC<PreviousPeriodComparisonProps> =
       if (previousVendorHeader && (previousDebitHeader || previousCreditHeader)) {
         let processedCount = 0;
         previousData.forEach(row => {
-          const vendor = String(row[previousVendorHeader] || '').trim();
-          if (!vendor || vendor === '') return;
+          const vendor = String(row[previousVendorHeader] || '').trim() || EMPTY_VENDOR_LABEL;
 
           if (!vendorMap.has(vendor)) {
             vendorMap.set(vendor, {

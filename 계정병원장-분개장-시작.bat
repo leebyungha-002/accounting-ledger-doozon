@@ -36,45 +36,17 @@ if not exist "node_modules" (
 )
 echo.
 
-REM 개발 서버 시작
-echo [3/3] 개발 서버 시작 중...
-echo.
-echo ========================================
-echo   서버가 시작되면 브라우저에서
-echo   http://localhost:8081/analysis 를 자동으로 열어줍니다
-echo.
-echo   주요 기능:
-echo   - 계정병원장 분석
-echo   - 분개장 분석
-echo   - AI 심층 분석
-echo ========================================
-echo.
-echo 서버를 종료하려면 Ctrl+C를 누르세요.
+REM [3/3] 자동화 시스템 시작
+echo [3/3] task_list 기반 자동화 시스템을 시작합니다...
 echo.
 
-REM npm run dev를 별도 PowerShell 창에서 시작
-echo 새 창에서 개발 서버를 시작합니다...
-start "계정병원장-분개장 개발 서버" powershell -NoExit -Command "cd '%~dp0'; npm run dev"
-
-REM 서버가 시작될 때까지 대기 (20초로 증가)
-echo.
-echo 서버 시작을 기다리는 중 (약 20초)...
-timeout /t 20 /nobreak >nul
-
-REM 브라우저에서 /analysis 경로 자동으로 열기
-echo.
-echo 브라우저를 열고 있습니다...
-REM 여러 방법으로 브라우저 열기 시도
-start "" "http://localhost:8081/analysis" 2>nul
-timeout /t 1 /nobreak >nul
-start "" "http://127.0.0.1:8081/analysis" 2>nul
+REM npm run dev를 실행하여 안티그래비티 엔진을 깨웁니다.
+REM %1은 실행 시 입력한 회사명(예: Braintree)을 프로그램에 전달합니다.
+call npm run dev %1
 
 echo.
 echo ========================================
-echo   브라우저가 열렸습니다!
-echo   서버는 별도 창에서 실행 중입니다.
-echo   서버를 종료하려면 "계정병원장-분개장 개발 서버" 창에서 Ctrl+C를 누르세요
+echo   모든 작업이 완료되었습니다!
+echo   결과물은 각 회사 폴더의 raw_data를 확인하세요.
 echo ========================================
-echo.
-echo 이 창은 5초 후 자동으로 닫힙니다...
-timeout /t 5 /nobreak >nul
+pause

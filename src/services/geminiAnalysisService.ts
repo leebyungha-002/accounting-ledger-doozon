@@ -932,17 +932,30 @@ export const convertLedgerRowsToJournalEntries = (
 
   return rows
     .map((row, index) => {
-      // entryNumber 추출 시도 (헤더가 있으면 사용, 없으면 인덱스 또는 날짜+계정 조합)
+      // entryNumber 추출: 원본이 "일자+번호" 결합(예: 2025010550006)이면 그대로 사용,
+      // "번호"만 있으면(예: 50007) 일자(YYYYMMDD)와 결합하여 전표번호로 구분
       let entryNumber: string | number | undefined = undefined;
-      if (entryNumberHeader && row[entryNumberHeader]) {
-        entryNumber = row[entryNumberHeader];
+      const dateStr = dateHeader && row[dateHeader]
+        ? (row[dateHeader] instanceof Date
+            ? `${row[dateHeader].getFullYear()}${String((row[dateHeader] as Date).getMonth() + 1).padStart(2, '0')}${String((row[dateHeader] as Date).getDate()).padStart(2, '0')}`
+            : String(row[dateHeader] || '').replace(/-|\s/g, '').slice(0, 8))
+        : '';
+
+      if (entryNumberHeader && row[entryNumberHeader] !== undefined && row[entryNumberHeader] !== '') {
+        const raw = row[entryNumberHeader];
+        const rawStr = String(raw).trim().replace(/\s/g, '');
+        if (/^\d{13,}$/.test(rawStr) && rawStr.startsWith('20')) {
+          entryNumber = rawStr;
+        } else if (dateStr && /^\d{1,8}$/.test(rawStr)) {
+          entryNumber = dateStr + rawStr.padStart(5, '0');
+        } else {
+          entryNumber = rawStr || raw;
+        }
       } else {
-        // 전표번호가 없으면 날짜와 계정명 조합으로 그룹핑
-        // 같은 날짜의 같은 거래는 같은 전표로 간주
-        const date = row[dateHeader] instanceof Date 
-          ? row[dateHeader].toISOString().split('T')[0] 
+        const date = row[dateHeader] instanceof Date
+          ? row[dateHeader].toISOString().split('T')[0]
           : String(row[dateHeader] || '');
-        entryNumber = `${date}_${index}`; // 임시 식별자
+        entryNumber = `${date}_${index}`;
       }
 
       // 구분 컬럼이 있으면 그것을 활용하여 debit/credit 결정

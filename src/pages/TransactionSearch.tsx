@@ -9,7 +9,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Search, Download, Check, ChevronsUpDown } from 'lucide-react';
+import { ArrowLeft, Search, Download, Check, ChevronsUpDown, RotateCcw } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
@@ -696,6 +696,21 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
     };
   }, [searchResults, selectedAccount, searchVendor]);
 
+  const handleReset = () => {
+    setSelectedAccount('');
+    setSearchVendor('');
+    setSearchDescription('');
+    setMinAmount('');
+    setMaxAmount('');
+    setStartDate('');
+    setEndDate('');
+    setAmountFilter('all');
+    setDisplayMode('detail');
+    setSearchResults([]);
+    setSelectedVendorForDrilldown(null);
+    setMonthlyDrilldown(null);
+  };
+
   const handleSearch = () => {
     const selectedAccountsArray = parseMultiInput(selectedAccount);
     const searchVendorsArray = parseMultiInput(searchVendor);
@@ -1323,6 +1338,10 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
             <Button onClick={handleSearch}>
               <Search className="mr-2 h-4 w-4" />
               검색
+            </Button>
+            <Button onClick={handleReset} variant="outline">
+              <RotateCcw className="mr-2 h-4 w-4" />
+              초기화
             </Button>
             {searchResults.length > 0 && (
               <Button onClick={downloadResults} variant="outline">
