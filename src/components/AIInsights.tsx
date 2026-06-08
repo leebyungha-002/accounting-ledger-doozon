@@ -26,7 +26,7 @@ import {
   analyzeAppropriateness, 
   suggestAppropriateMinAmount 
 } from '@/services/geminiAnalysisService';
-import { CalendarX, FileSearch, Building2, Sparkles, AlertTriangle, Loader2, CheckCircle2, XCircle, X, Maximize2, ArrowLeft, Download, Coins, Calculator, ArrowRightLeft, ListFilter, Search, Filter, ChevronRight, FileWarning, BarChart3, TrendingUp, DollarSign, ChevronsUpDown, FileDown, Bug } from 'lucide-react';
+import { CalendarX, FileSearch, Building2, Sparkles, AlertTriangle, Loader2, CheckCircle2, XCircle, X, Maximize2, ArrowLeft, Download, Coins, Calculator, ArrowRightLeft, ListFilter, Search, Filter, ChevronRight, FileWarning, BarChart3, TrendingUp, DollarSign, ChevronsUpDown, FileDown, Bug, Check } from 'lucide-react';
 import { VisualizationAnalysis } from './VisualizationAnalysis';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -165,13 +165,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
   // Counter Analysis Interactive States
   const [counterSearchTerm, setCounterSearchTerm] = useState('');
   const [counterSearchSide, setCounterSearchSide] = useState<'차변' | '대변'>('차변');
-  const [counterSuggestions, setCounterSuggestions] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [counterComboboxOpen, setCounterComboboxOpen] = useState(false);
   const [counterResult, setCounterResult] = useState<CounterAccountAnalysisResult | null>(null);
   const [counterDrilldownAccount, setCounterDrilldownAccount] = useState<string | null>(null);
   const [counterDrilldownAmountClicked, setCounterDrilldownAmountClicked] = useState<boolean>(false); // 상대계정 금액 클릭 여부
   const [selectedVoucherNumber, setSelectedVoucherNumber] = useState<string | null>(null); // 선택된 전표번호
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Options
   const [excludeEndOfMonth, setExcludeEndOfMonth] = useState<boolean>(false);
@@ -519,16 +517,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     };
   }, [analysisEntries]);
 
-  // Handle click outside for suggestions
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (searchInputRef.current && !searchInputRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // 계정과목코드 추출 ([10301]보통예금 → 10301, 없으면 Infinity로 정렬 시 뒤로)
   const extractAccountCode = (accountName: string): number => {
@@ -541,12 +529,14 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     return Infinity;
   };
 
-  // 계정명 정규화 함수 (코드·숫자 제거하여 계정명만 비교)
+  // 계정명 정규화 함수 (코드·숫자·언더바 제거하여 계정명만 비교)
   const normalizeAccountName = (accountName: string): string => {
     if (!accountName) return '';
     let s = String(accountName).trim();
     // [10301] 보통예금 → 보통예금, 10301 보통예금 → 보통예금
     s = s.replace(/^\[\d+\]\s*/, '').replace(/^\d+\s*/, '');
+    // _건물(20200) → 건물(20200) (ERP 시트명 앞 언더바 제거)
+    s = s.replace(/^_+/, '');
     return s.trim();
   };
 
@@ -611,33 +601,48 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
       return 5;
     }
     
-    // 6. 매출 항목
-    const revenueKeywords = ['매출', '매출액', '영업수익', '제품매출', '상품매출'];
+    // 6. 매출/영업수익 항목
+    const revenueKeywords = ['매출', '매출액', '영업수익', '제품매출', '상품매출', '용역매출',
+      '서비스매출', '공사수익', '분양수익'];
     if (revenueKeywords.some(kw => normalized.includes(kw)) && !normalized.includes('원가')) {
       return 6;
     }
-    
-    // 7. 판매비와 관리비 항목
-    const sgaKeywords = ['판매비', '관리비', '판관비', '판매관리비', '급여', '임금', '수당', 
-      '복리후생비', '임차료', '임대료', '광고선전비', '운반비', '보험료', '세금과공과', 
-      '감가상각비', '지급임차료', '수선비', '차량유지비', '소모품비', '도서인쇄비', 
-      '수도광열비', '지급수수료', '대손상각비', '여비교통비', '접대비', '통신비'];
-    if (sgaKeywords.some(kw => normalized.includes(kw))) {
+
+    // 7. 영업외수익/기타수익 항목
+    // '수입'으로 끝나거나 포함하는 계정(폐기물처리수입, 임대수입, 이자수입 등)을 수익으로 분류
+    const nonOperatingRevenueKeywords = ['영업외수익', '이자수익', '배당수익', '임대수익',
+      '수수료수익', '기타수익', '외환차익', '유형자산처분이익', '잡이익',
+      '이자수입', '배당수입', '임대수입', '잡수입', '수입'];
+    if (nonOperatingRevenueKeywords.some(kw => normalized.includes(kw))) {
       return 7;
     }
-    
-    // 8. 영업외수익 항목
-    const nonOperatingRevenueKeywords = ['영업외수익', '이자수익', '배당수익', '임대수익', 
-      '수수료수익', '기타수익', '외환차익', '유형자산처분이익'];
-    if (nonOperatingRevenueKeywords.some(kw => normalized.includes(kw))) {
+
+    // 8. 판매비와 관리비 항목
+    const sgaKeywords = ['판매비', '관리비', '판관비', '판매관리비', '급여', '임금', '수당',
+      '복리후생비', '임차료', '임대료', '광고선전비', '운반비', '보험료', '세금과공과',
+      '감가상각비', '지급임차료', '수선비', '차량유지비', '소모품비', '도서인쇄비',
+      '수도광열비', '지급수수료', '대손상각비', '여비교통비', '접대비', '통신비'];
+    if (sgaKeywords.some(kw => normalized.includes(kw))) {
       return 8;
     }
-    
-    // 9. 영업외비용 항목
-    const nonOperatingExpenseKeywords = ['영업외비용', '이자비용', '외환차손', '유형자산처분손실', 
-      '기타비용', '손실', '매출원가', '제품매출원가', '상품매출원가'];
-    if (nonOperatingExpenseKeywords.some(kw => normalized.includes(kw))) {
+
+    // 9. 원가 항목 (매출원가·제조원가 등 — 판관비보다 먼저 비용으로 분류)
+    const costKeywords = [
+      '매출원가', '제품매출원가', '상품매출원가',
+      '제조원가', '제조비용', '제조경비', '제조간접비',
+      '폐기물처리원가', '공사원가', '용역원가', '서비스원가',
+      '재료비', '노무비', '외주가공비',
+      '원가',  // 위 키워드에 해당하지 않는 '~원가' 계정 전체 포괄
+    ];
+    if (costKeywords.some(kw => normalized.includes(kw))) {
       return 9;
+    }
+
+    // 10. 영업외비용 항목
+    const nonOperatingExpenseKeywords = ['영업외비용', '이자비용', '외환차손', '유형자산처분손실',
+      '기타비용', '손실'];
+    if (nonOperatingExpenseKeywords.some(kw => normalized.includes(kw))) {
+      return 10;
     }
     
     // 기타 (분류되지 않은 항목)
@@ -705,20 +710,29 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     const diff = totalDebit - totalCredit;
     const isBalanced = Math.abs(diff) < 1; 
 
-    const accountMap = new Map<string, { count: number; debit: number; credit: number; openingBalance?: number }>();
+    const accountMap = new Map<string, { count: number; debit: number; credit: number; openingBalance?: number; accountCode?: string }>();
     analysisEntries.forEach(e => {
       const current = accountMap.get(e.accountName) || { count: 0, debit: 0, credit: 0 };
       accountMap.set(e.accountName, {
         count: current.count + 1,
         debit: current.debit + e.debit,
         credit: current.credit + e.credit,
-        openingBalance: current.openingBalance
+        openingBalance: current.openingBalance,
+        accountCode: current.accountCode || (e.accountCode?.trim() ? e.accountCode.trim() : undefined),
       });
     });
 
-    // 기초잔액 매칭
-    const accountStats = Array.from(accountMap.entries()).map(([name, val]) => {
-      // 분개장의 계정명과 계정별원장의 계정명 매칭
+    // 당기 거래가 없지만 기초잔액이 있는 계정을 accountMap에 추가
+    openingBalances.forEach((balance, ledgerAccountName) => {
+      if (balance === 0) return;
+      const hasMatch = Array.from(accountMap.keys()).some(name => matchAccountName(ledgerAccountName, name));
+      if (!hasMatch) {
+        accountMap.set(ledgerAccountName, { count: 0, debit: 0, credit: 0 });
+      }
+    });
+
+    // 기초잔액 매칭 + 유효 계정코드 계산
+    const rawStats = Array.from(accountMap.entries()).map(([name, val]) => {
       let matchedOpeningBalance = 0;
       for (const [ledgerAccount, balance] of openingBalances.entries()) {
         if (matchAccountName(ledgerAccount, name)) {
@@ -726,21 +740,68 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
           break;
         }
       }
-
+      const accountCode = val.accountCode || name.match(/\((\d+)\)/)?.[1] || '';
       return {
         name,
-        ...val,
+        count: val.count,
+        debit: val.debit,
+        credit: val.credit,
+        accountCode: accountCode || undefined,
         balance: val.debit - val.credit,
         openingBalance: matchedOpeningBalance,
-        endingBalance: matchedOpeningBalance + (val.debit - val.credit), // 기초잔액 + 당기변동
-        category: getAccountCategory(name) // 재무제표 순서 카테고리
+        endingBalance: matchedOpeningBalance + (val.debit - val.credit),
+        category: getAccountCategory(name),
+      };
+    });
+
+    // 계정코드가 같은 항목을 하나로 합산
+    const codeGroupMap = new Map<string, typeof rawStats>();
+    rawStats.forEach(stat => {
+      const key = stat.accountCode ?? `__nocode__${stat.name}`;
+      const group = codeGroupMap.get(key);
+      if (group) {
+        group.push(stat);
+      } else {
+        codeGroupMap.set(key, [stat]);
+      }
+    });
+
+    const accountStats = Array.from(codeGroupMap.values()).map(group => {
+      if (group.length === 1) return group[0];
+      // 같은 코드의 복수 계정명은 "/" 로 합쳐서 표시, 금액은 합산
+      const primary = group[0];
+      const displayName = group
+        .map(s => s.name.replace(/\(\d+\)\s*$/, '').trim())
+        .filter((n, i, arr) => arr.indexOf(n) === i) // 중복 제거
+        .join(' / ');
+      const totalCount   = group.reduce((s, g) => s + g.count, 0);
+      const totalDebitG  = group.reduce((s, g) => s + g.debit, 0);
+      const totalCreditG = group.reduce((s, g) => s + g.credit, 0);
+      const totalOpening = group.reduce((s, g) => s + (g.openingBalance || 0), 0);
+      return {
+        name: displayName,
+        count: totalCount,
+        debit: totalDebitG,
+        credit: totalCreditG,
+        accountCode: primary.accountCode,
+        balance: totalDebitG - totalCreditG,
+        openingBalance: totalOpening,
+        endingBalance: totalOpening + (totalDebitG - totalCreditG),
+        category: primary.category,
       };
     }).sort((a, b) => {
-      // 1순위: 계정과목코드 ([10301], [10302] 등) 숫자 기준 오름차순
-      const codeA = extractAccountCode(a.name);
-      const codeB = extractAccountCode(b.name);
+      // 계정코드 번호 오름차순, 코드 없으면 맨 뒤
+      const getCode = (stat: typeof a): number => {
+        if (stat.accountCode) {
+          const n = parseInt(stat.accountCode, 10);
+          if (!isNaN(n)) return n;
+        }
+        const emb = extractAccountCode(stat.name);
+        return emb !== Infinity ? emb : Infinity;
+      };
+      const codeA = getCode(a);
+      const codeB = getCode(b);
       if (codeA !== codeB) return codeA - codeB;
-      // 2순위: 코드가 같거나 없으면 계정명 문자열
       return (a.name || '').localeCompare(b.name || '');
     });
 
@@ -1079,24 +1140,6 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
     return analysisEntries.filter(e => String(e.entryNumber) === String(voucherNumber));
   };
 
-  // --- Search Handler ---
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setCounterSearchTerm(val);
-    if (val.trim()) {
-      const filtered = uniqueAccountNames.filter(n => n.toLowerCase().includes(val.toLowerCase()));
-      setCounterSuggestions(filtered);
-      setShowSuggestions(true);
-    } else {
-      setCounterSuggestions([]);
-      setShowSuggestions(false);
-    }
-  };
-
-  const selectSuggestion = (name: string) => {
-    setCounterSearchTerm(name);
-    setShowSuggestions(false);
-  };
 
   const openModal = (type: AnalysisType) => {
     setActiveCard(type);
@@ -1793,9 +1836,9 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
   const handleGeneralSummaryDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
     const data = generalStats.accountStats.map(stat => ({
-      '계정과목': stat.name, '전표 수': stat.count, '차변 합계': stat.debit, '대변 합계': stat.credit, '잔액': stat.balance
+      '계정코드': stat.accountCode || '', '계정과목': stat.name, '전표 수': stat.count, '차변 합계': stat.debit, '대변 합계': stat.credit, '잔액': stat.balance
     }));
-    exportToExcel(data, "계정별요약", "Sheet1", [20, 10, 15, 15, 15]);
+    exportToExcel(data, "계정별요약", "Sheet1", [15, 20, 10, 15, 15, 15]);
   };
 
   // 월별 트렌드 그래프 엑셀 다운로드 (벤포드 분석과 동일하게 차트를 엑셀 시트에 이미지로 삽입)
@@ -2812,6 +2855,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                         onClick={(e) => {
                           e.stopPropagation();
                           const data = generalStats.accountStats.map(stat => ({
+                            '계정코드': stat.accountCode || '',
                             '계정과목': stat.name,
                             '전표 수': stat.count,
                             '기초잔액': stat.openingBalance || 0,
@@ -2820,7 +2864,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                             '당기변동': stat.balance,
                             '기말잔액': stat.endingBalance !== undefined ? stat.endingBalance : stat.balance
                           }));
-                          exportToExcel(data, '계정별상세내역', '계정별상세내역', [20, 10, 15, 15, 15]);
+                          exportToExcel(data, '계정별상세내역', '계정별상세내역', [15, 20, 10, 15, 15, 15, 15, 15]);
                         }}
                         className="flex items-center gap-1"
                       >
@@ -2834,6 +2878,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                       <Table>
                         <TableHeader>
                           <TableRow>
+                            <TableHead>계정코드</TableHead>
                             <TableHead>계정과목</TableHead>
                             <TableHead className="text-right">전표 수</TableHead>
                             <TableHead className="text-right">기초잔액</TableHead>
@@ -2844,12 +2889,30 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {generalStats.accountStats.map((stat, idx) => (
-                            <TableRow 
+                          {[...generalStats.accountStats].sort((a, b) => {
+                            const getCode = (accountCode: string | undefined, name: string): number => {
+                              // 계정코드 필드에서 숫자만 추출
+                              if (accountCode) {
+                                const digits = accountCode.replace(/[^0-9]/g, '');
+                                if (digits) return parseInt(digits, 10);
+                              }
+                              // 계정명에서 코드 추출 ([10101] 또는 10101로 시작)
+                              const m = name.match(/^\[(\d+)\]/) || name.match(/^(\d+)/);
+                              return m ? parseInt(m[1], 10) : Infinity;
+                            };
+                            const cA = getCode(a.accountCode, a.name || '');
+                            const cB = getCode(b.accountCode, b.name || '');
+                            if (cA !== cB) return cA - cB;
+                            return (a.accountCode || '').localeCompare(b.accountCode || '') || (a.name || '').localeCompare(b.name || '');
+                          }).map((stat, idx) => (
+                            <TableRow
                               key={idx}
                               className="hover:bg-muted transition-colors"
                             >
-                                  <TableCell 
+                                  <TableCell className="text-muted-foreground text-sm">
+                                    {stat.accountCode || '-'}
+                                  </TableCell>
+                                  <TableCell
                                     className="font-medium cursor-pointer hover:underline"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -3558,41 +3621,42 @@ const AIInsights: React.FC<AIInsightsProps> = ({ entries, onBackToHome, ledgerWo
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <Label>분석할 계정과목</Label>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            value={counterSearchTerm}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setCounterSearchTerm(val);
-                              if (val.trim()) {
-                                const filtered = uniqueAccountNames.filter(n =>
-                                  n.toLowerCase().includes(val.toLowerCase())
-                                );
-                                setCounterSuggestions(filtered.slice(0, 10));
-                                setShowSuggestions(true);
-                              } else {
-                                setCounterSuggestions([]);
-                                setShowSuggestions(false);
-                              }
-                            }}
-                            placeholder="예: 보통예금, 접대비..."
-                            className="pl-10"
-                          />
-                          {showSuggestions && counterSuggestions.length > 0 && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-lg z-50">
-                              {counterSuggestions.map((name, idx) => (
-                                <div
-                                  key={idx}
-                                  onClick={() => selectSuggestion(name)}
-                                  className="px-3 py-1.5 hover:bg-accent cursor-pointer"
-                                >
-                                  {name}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        <Popover open={counterComboboxOpen} onOpenChange={setCounterComboboxOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={counterComboboxOpen}
+                              className="w-full justify-between"
+                            >
+                              <span className="truncate">{counterSearchTerm || '계정과목 선택...'}</span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[400px] p-0" align="start">
+                            <Command>
+                              <CommandInput placeholder="계정명 검색..." />
+                              <CommandList>
+                                <CommandEmpty>검색 결과가 없습니다.</CommandEmpty>
+                                <CommandGroup>
+                                  {uniqueAccountNames.map((name) => (
+                                    <CommandItem
+                                      key={name}
+                                      value={name}
+                                      onSelect={() => {
+                                        setCounterSearchTerm(name);
+                                        setCounterComboboxOpen(false);
+                                      }}
+                                    >
+                                      <Check className={cn('mr-2 h-4 w-4', counterSearchTerm === name ? 'opacity-100' : 'opacity-0')} />
+                                      {name}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </div>
                       <div>
                         <Label>거래 방향</Label>
