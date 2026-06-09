@@ -270,8 +270,7 @@ export const testApiKey = async (apiKey?: string): Promise<{ valid: boolean; mes
       };
     }
     
-    // 2026년 2월 기준 최신 공식 명칭 우선, 404 시 gemini-3-pro 시도
-    const testModels = ['gemini-2.0-flash', 'gemini-3-pro'];
+    const testModels = ['gemini-3.1-flash-lite', 'gemini-3-pro-preview', 'gemini-2.5-flash', 'gemini-2.0-flash'];
     let lastTestError: any = null;
     
     for (const testModel of testModels) {
@@ -663,14 +662,12 @@ export const analyzeWithFlash = async (
   
     console.log('✅ Gemini 클라이언트 생성 성공');
   
-  // 2026년 2월 기준 최신 공식 명칭: gemini-3-pro-preview 우선, 404 시 gemini-3-pro 등 대체
   const modelsToTry = [
-    'gemini-2.0-flash',       // 비용 절감용 (최우선)
-    'gemini-3-pro',           // 정식명 사용 시: 404면 위 preview 사용
-    'gemini-2.5-flash',       // 최신 2.5 Flash
-    'gemini-1.5-flash',       // 안정적인 Flash 모델 (대체)
-    'gemini-2.0-flash-exp',   // AdvancedLedgerAnalysis에서 사용
-    'gemini-1.5-pro',         // Pro 모델
+    'gemini-3.1-flash-lite',  // 최신 Flash Lite (최우선)
+    'gemini-3-pro-preview',   // Pro Preview (두 번째)
+    'gemini-2.5-flash',       // 2.5 Flash (대체)
+    'gemini-2.0-flash',       // 이전 Flash (대체)
+    'gemini-1.5-flash',       // 안정적인 Flash (대체)
   ];
   
   console.log('📋 시도할 모델 목록:', modelsToTry);
@@ -678,9 +675,9 @@ export const analyzeWithFlash = async (
   let lastError: any = null;
   const maxRetries = 0; // 할당량 절약: 재시도 없음 (첫 번째 모델만 시도)
   
-  const primaryModel = modelsToTry[0]; // gemini-3-pro-preview (최신 공식 명칭)
-  
-  console.log(`🎯 모델 선택: ${primaryModel} → 실패 시 ${modelsToTry[1]} (gemini-3-pro) 등 순차 시도`);
+  const primaryModel = modelsToTry[0];
+
+  console.log(`🎯 모델 선택: ${primaryModel} → 실패 시 ${modelsToTry[1]} 등 순차 시도`);
   console.log(`💡 404 오류 발생 시 자동으로 다음 모델로 대체됩니다.`);
   
   // 429 오류 자동 재시도 로직
@@ -919,27 +916,11 @@ export const analyzeWithFlash = async (
       );
     }
     
-    // 404 오류는 모델을 찾을 수 없음 (2026년 2월 모델 명칭 업데이트 시 자주 발생)
+    // 404 오류는 모델을 찾을 수 없음 → 폴백 모델로 계속 시도
     if (statusCode === 404) {
-      console.error(`❌ ${primaryModel} 모델을 찾을 수 없음 (404 Not Found)`);
-      console.error('Gemini API Error: 모델명 확인 필요. 최신 명칭: gemini-3-pro-preview, 대안: gemini-3-pro');
-      console.error('🔍 확인:', {
-        '사용한 모델': primaryModel,
-        '가능한 원인': 'Google 모델 명칭 변경 또는 API Key 권한',
-        '확인 링크': 'https://aistudio.google.com'
-      });
-      
-      throw new Error(
-        `❌ ${primaryModel} 모델을 찾을 수 없음 (404 Not Found)\n\n` +
-        `⚠️ 사용한 모델명: "${primaryModel}"\n\n` +
-        `🔍 가능한 원인:\n` +
-        `1. 2026년 2월 기준 Google 모델 명칭이 변경됨 (최신: gemini-3-pro-preview, 대안: gemini-3-pro)\n` +
-        `2. API Key에 해당 모델 접근 권한이 없음\n\n` +
-        `✅ 해결 방법:\n` +
-        `1. Google AI Studio에서 사용 가능한 모델 확인: https://aistudio.google.com\n` +
-        `2. 코드 내 모델명을 gemini-3-pro-preview 또는 gemini-3-pro로 수정 후 재시도\n` +
-        `3. API Key 권한 및 빌링 설정 확인`
-      );
+      console.error(`❌ ${primaryModel} 모델을 찾을 수 없음 (404) → 다음 모델 시도`);
+      lastError = error;
+      // 아래 폴백 루프로 fall-through
     }
     
     // 네트워크 오류나 일시적 오류만 다른 모델 시도 (할당량 소모 주의)
@@ -1004,19 +985,20 @@ export const analyzeWithPro = async (
     throw new Error('API Key가 설정되지 않았습니다. 설정 버튼을 클릭하여 Google Gemini API Key를 입력해주세요.');
   }
 
-  try {
-    // 최신 공식 명칭: gemini-3-pro-preview (404 시 코드에서 gemini-3-pro 로 변경 시도)
-    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    return response.text();
-  } catch (error: any) {
-    console.error('Gemini API Error:', error?.message ?? error);
-    if (error?.status === 404 || (error?.message ?? '').includes('404')) {
-      console.error('모델명 확인: 최신 명칭 gemini-3-pro-preview, 대안 gemini-3-pro');
+  const proModels = ['gemini-3-pro-preview', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  let lastProError: any = null;
+  for (const proModel of proModels) {
+    try {
+      const model = client.getGenerativeModel({ model: proModel });
+      const result = await model.generateContent(prompt);
+      const response = result.response;
+      return response.text();
+    } catch (error: any) {
+      console.error(`Gemini API Error (${proModel}):`, error?.message ?? error);
+      lastProError = error;
     }
-    throw error;
   }
+  throw lastProError || new Error('모든 모델 시도가 실패했습니다.');
 };
 
 /**

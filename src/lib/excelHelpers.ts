@@ -113,7 +113,7 @@ export const getDataFromSheet = (worksheet: XLSX.WorkSheet | undefined): { data:
 
   if (headerIndex === -1) return { data: [], headers: [], orderedHeaders: [] };
 
-  const rawData = XLSX.utils.sheet_to_json<LedgerRow>(worksheet, { range: headerIndex });
+  const rawData = XLSX.utils.sheet_to_json<LedgerRow>(worksheet, { range: headerIndex, defval: null });
   const headers = rawData.length > 0 ? Object.keys(rawData[0]) : [];
   const orderedHeaders = (sheetDataAsArrays[headerIndex] || []).map(h => String(h || '').trim());
 

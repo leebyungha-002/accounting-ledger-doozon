@@ -10,6 +10,7 @@ export interface JournalEntry {
   id?: string | number; // 고유 식별자 (선택)
   entryNumber?: string | number; // 전표번호 (선택)
   date: string | Date;
+  accountCode?: string; // 계정코드 (선택)
   accountName: string;
   vendor: string;
   debit: number;

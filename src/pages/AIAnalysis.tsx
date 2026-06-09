@@ -167,39 +167,22 @@ const AIAnalysis: React.FC = () => {
   
   // 안전한 클릭 핸들러
   const handleSafeClick = (callback: () => void, e?: React.MouseEvent) => {
-    if (!e) {
-      return;
-    }
-    
-    // 스크롤바 클릭이면 무조건 차단
-    if (isScrollbarClickRef.current) {
-      console.log('스크롤바 클릭 - 차단');
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    
-    // 스크롤바 영역 클릭 확인
+    if (!e) return;
+
+    // 스크롤바 영역 클릭 차단
     const windowWidth = window.innerWidth;
-    const scrollbarWidth = 17;
-    if (e.clientX && e.clientX >= windowWidth - scrollbarWidth) {
-      console.log('스크롤바 영역 클릭 - 차단');
+    if (isScrollbarClickRef.current || (e.clientX && e.clientX >= windowWidth - 17)) {
       e.preventDefault();
       e.stopPropagation();
       return;
     }
-    
+
     e.preventDefault();
     e.stopPropagation();
-    
-    // 스크롤 중이면 클릭 무시
-    if (isScrollingRef.current || isMouseMovingRef.current) return;
-    const timeSinceMouseDown = Date.now() - mouseDownTimeRef.current;
-    if (timeSinceMouseDown < 150 && timeSinceMouseDown > 0) return;
-    const target = e.target as HTMLElement;
-    const button = target.closest('button');
-    if (!button || button.disabled) return;
-    
+
+    // 실제 스크롤 중(페이지가 이동하는 중)이면 무시
+    if (isScrollingRef.current) return;
+
     callback();
   };
 

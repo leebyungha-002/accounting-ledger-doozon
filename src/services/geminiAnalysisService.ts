@@ -145,14 +145,12 @@ Return JSON in the following format:
 Keep the content professional and in Korean. Use markdown for formatting.
 `;
 
-  // 2026년 2월 기준 최신 공식 명칭: gemini-3-pro-preview 우선, 404 시 gemini-3-pro 등 대체
   const modelsToTry = [
-    'gemini-2.0-flash',         // 비용 절감용 (최우선)
-    'gemini-3-pro',             // 정식명 (404 시 위 preview 사용)
-    'gemini-2.5-flash',         // 최신 2.5 Flash
-    'gemini-1.5-flash-latest',  // 최신 Flash 모델
-    'gemini-1.5-flash',         // 기본 Flash 모델
-    'gemini-1.5-pro',           // Pro 모델
+    'gemini-3.1-flash-lite',  // 최신 Flash Lite (최우선)
+    'gemini-3-pro-preview',   // Pro Preview (두 번째)
+    'gemini-2.5-flash',       // 2.5 Flash (대체)
+    'gemini-2.0-flash',       // 이전 Flash (대체)
+    'gemini-1.5-flash',       // 안정적인 Flash (대체)
   ];
   
   let lastError: any = null;
@@ -280,14 +278,12 @@ Return JSON in the following format:
 If none, items should be an empty array.
 `;
 
-  // 비용 절감: gemini-2.0-flash 우선, 404 시 gemini-3-pro 등 대체
   const modelsToTry = [
-    'gemini-2.0-flash',         // 비용 절감용 (최우선)
-    'gemini-3-pro',             // 정식명 (404 시 위 preview 사용)
-    'gemini-2.5-flash',         // 최신 2.5 Flash
-    'gemini-1.5-flash-latest',  // 최신 Flash 모델
-    'gemini-1.5-flash',         // 기본 Flash 모델
-    'gemini-1.5-pro',           // Pro 모델
+    'gemini-3.1-flash-lite',  // 최신 Flash Lite (최우선)
+    'gemini-3-pro-preview',   // Pro Preview (두 번째)
+    'gemini-2.5-flash',       // 2.5 Flash (대체)
+    'gemini-2.0-flash',       // 이전 Flash (대체)
+    'gemini-1.5-flash',       // 안정적인 Flash (대체)
   ];
   
   let lastError: any = null;
@@ -454,8 +450,7 @@ ${topAccounts.map(a => `- ${a.name}: ${a.count}건, 평균 ${Math.round(a.avgAmo
 예: {"suggestedMinAmount": 150000, "reason": "95백분위수 기준으로 상위 5% 항목만 분석하면 약 500건 정도로 적정한 분석량이 됩니다."}
 `;
 
-  // 최신 공식 명칭 우선, 404 시 gemini-3-pro 시도
-  const suggestModels = ['gemini-2.0-flash', 'gemini-3-pro'];
+  const suggestModels = ['gemini-3.1-flash-lite', 'gemini-3-pro-preview', 'gemini-2.5-flash', 'gemini-2.0-flash'];
   for (const modelName of suggestModels) {
     try {
       const model = client.getGenerativeModel({ 
@@ -652,14 +647,12 @@ Return JSON in the following format:
 `;
 
   try {
-    // 2026년 2월 기준 최신 공식 명칭: gemini-3-pro-preview 우선, 404 시 gemini-3-pro 등 대체
     const modelsToTry = [
-      'gemini-2.0-flash',         // 비용 절감용 (최우선)
-      'gemini-3-pro',             // 정식명 (404 시 위 preview 사용)
-      'gemini-2.5-flash',         // 최신 2.5 Flash
-      'gemini-1.5-flash',         // 대체 - 404 오류 시 자동 대체
-      'gemini-2.0-flash-exp',     // 대체 - AdvancedLedgerAnalysis에서 사용
-      'gemini-1.5-pro',           // 대체 - Pro 모델
+      'gemini-3.1-flash-lite',  // 최신 Flash Lite (최우선)
+      'gemini-3-pro-preview',   // Pro Preview (두 번째)
+      'gemini-2.5-flash',       // 2.5 Flash (대체)
+      'gemini-2.0-flash',       // 이전 Flash (대체)
+      'gemini-1.5-flash',       // 안정적인 Flash (대체)
     ];
     
     let lastError: any = null;
@@ -773,7 +766,21 @@ export const convertLedgerRowsToJournalEntries = (
 
   const dateHeader = robustFindHeader(headers, ['일자', '날짜', '거래일', 'date']);
   const accountNameHeader = robustFindHeader(headers, ['계정명', '계정과목', '계정', 'account', 'accountname', '적요란']); // '계정명'을 우선순위로, 적요란도 계정명으로 사용 가능
-  const accountCodeHeader = robustFindHeader(headers, ['계정코드', '코드', 'accountcode', 'account_code', 'code']); // 계정코드 컬럼 (금액이 아님)
+  // robustFindHeader의 역방향 부분일치(keyword.includes(header))를 사용하면
+  // '계정과목코드'.includes('계정과목') = true 가 되어 계정과목 컬럼을 코드 컬럼으로 오인식하므로
+  // 정방향(header.includes(keyword))과 완전일치만 허용하는 전용 탐색 사용
+  const findCodeHeader = (hdrs: string[], keywords: string[]): string | undefined => {
+    const normalized = hdrs.map(h => ({ original: h, n: String(h || '').replace(/\s/g, '').toLowerCase() }));
+    for (const kw of keywords) {
+      const nkw = kw.replace(/\s/g, '').toLowerCase();
+      const exact = normalized.find(h => h.n === nkw);
+      if (exact) return exact.original;
+      const partial = normalized.find(h => h.n.includes(nkw)); // 헤더가 키워드를 포함하는 방향만
+      if (partial) return partial.original;
+    }
+    return undefined;
+  };
+  const accountCodeHeader = findCodeHeader(headers, ['계정과목코드', '계정코드', 'accountcode', 'account_code']);
   const vendorHeader = robustFindHeader(headers, ['거래처', 'vendor', 'customer', '업체']);
   let debitHeader = robustFindHeader(headers, ['차변', 'debit', '차변금액']);
   let creditHeader = robustFindHeader(headers, ['대변', 'credit', '대변금액', '대변액']);
@@ -1107,9 +1114,10 @@ export const convertLedgerRowsToJournalEntries = (
       const entry: JournalEntry = {
         id: index,
         entryNumber: entryNumber,
-        date: row[dateHeader] instanceof Date 
-          ? row[dateHeader].toISOString().split('T')[0] 
+        date: row[dateHeader] instanceof Date
+          ? row[dateHeader].toISOString().split('T')[0]
           : String(row[dateHeader] || ''),
+        accountCode: accountCodeHeader ? String(row[accountCodeHeader] || '').trim() : '',
         accountName: String(row[finalAccountNameHeader] || ''),
         vendor: vendorHeader ? String(row[vendorHeader] || '') : '',
         debit: debit,

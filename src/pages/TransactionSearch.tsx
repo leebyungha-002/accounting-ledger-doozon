@@ -1060,7 +1060,6 @@ export const TransactionSearch: React.FC<TransactionSearchProps> = ({
                           .filter(account => {
                             return !accountInputValue || account.toLowerCase().includes(accountInputValue.toLowerCase());
                           })
-                          .slice(0, 100)
                           .map((account) => (
                             <CommandItem
                               key={account}

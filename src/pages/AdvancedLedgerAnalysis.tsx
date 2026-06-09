@@ -1939,7 +1939,7 @@ ${JSON.stringify(sampledData, null, 2)}
                           const fullWs = XLSX.utils.aoa_to_sheet(fullData);
                           XLSX.utils.book_append_sheet(wb, fullWs, '전체내용');
                           
-                          const fileName = `AI분석_${selectedAccount}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                          const fileName = `총계정원장_AI분석_${selectedAccount}_${new Date().toISOString().split('T')[0]}.xlsx`;
                           XLSX.writeFile(wb, fileName);
                           
                           toast({
